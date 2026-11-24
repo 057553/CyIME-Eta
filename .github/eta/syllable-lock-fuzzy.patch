@@ -1,28 +1,8 @@
 diff --git a/app/src/main/java/com/kingzcheung/xime/rime/PinyinSyllableChoices.kt b/app/src/main/java/com/kingzcheung/xime/rime/PinyinSyllableChoices.kt
-index d99fd84..c1b1fcb 100644
+index d99fd84..1326d4e 100644
 --- a/app/src/main/java/com/kingzcheung/xime/rime/PinyinSyllableChoices.kt
 +++ b/app/src/main/java/com/kingzcheung/xime/rime/PinyinSyllableChoices.kt
-@@ -26,12 +26,108 @@ data class PinyinSyllableChoices(
-     val labels: List<String> get() = letterGroup?.map { it.toString() } ?: options.map { it.pinyin }
-     val selectedIndex: Int get() = letterGroup?.indexOf(inputText) ?: options.indexOfFirst { it.selected }
- 
-+    /**
-+     * 选中第 [index] 项时，同一码段上与它模糊音等价的读音（含它自己）。
-+     * 原生侧只保留这些读音出字，其余同码不同音节全部丢弃。
-+     * [fuzzy] 由方案的 `speller/algebra` 推导，规则变了这里自动跟着变。
-+     */
-+    internal fun fuzzyKeepIds(index: Int, fuzzy: FuzzySyllableEquivalences): IntArray {
-+        val chosen = options.getOrNull(index) ?: return IntArray(0)
-+        return options.filter { it.start == chosen.start && it.end == chosen.end }
-+            .filter { fuzzy.equivalent(chosen.pinyin, it.pinyin) }
-+            .map { it.syllableId }
-+            .distinct()
-+            .toIntArray()
-+    }
-+
-     internal fun matches(schema: String, revision: Long, input: String,
-         confirmedLength: Int, confirmedText: String): Boolean =
-         schemaId == schema && engineRevision == revision && inputText == input &&
+@@ -32,6 +32,92 @@ data class PinyinSyllableChoices(
              protectedLength == confirmedLength && protectedText == confirmedText
  }
  
@@ -56,6 +36,10 @@ index d99fd84..c1b1fcb 100644
 +        if (replacement.isEmpty() || replacement.any { it !in 'a'..'z' }) return@mapNotNull null
 +        literal to replacement
 +    }
++
++    /** 传给原生侧的规则原文，形如 "eng>en"；原生按段判等价，多段选择互不影响。 */
++    fun ruleLiterals(): Array<String> =
++        literalReplacements.map { (pattern, replacement) -> "$pattern>$replacement" }.toTypedArray()
 +
 +    /** 每个拼音的可达集合只算一次；音节总共四百多个，缓存后每次点击零成本。 */
 +    private val reachableCache = HashMap<String, Set<String>>()
@@ -112,7 +96,7 @@ index d99fd84..c1b1fcb 100644
  internal fun parsePinyinSyllableOptions(records: Array<String>, input: String,
      protectedLength: Int): List<PinyinSyllableOption> = records.mapNotNull { record ->
 diff --git a/app/src/main/java/com/kingzcheung/xime/rime/RimeEngine.kt b/app/src/main/java/com/kingzcheung/xime/rime/RimeEngine.kt
-index 8cb3e3b..a5adf15 100644
+index 8cb3e3b..1ebe4e0 100644
 --- a/app/src/main/java/com/kingzcheung/xime/rime/RimeEngine.kt
 +++ b/app/src/main/java/com/kingzcheung/xime/rime/RimeEngine.kt
 @@ -891,6 +891,7 @@ class RimeEngine {
@@ -123,16 +107,14 @@ index 8cb3e3b..a5adf15 100644
          isStillCurrent: () -> Boolean = { true }): RimeProcessResult? = locked {
          if (!isInitialized || !nativeHasSession() || !isStillCurrent() || nativeIsAsciiMode()) return@locked null
          val before = nativePinyinEditSnapshot()
-@@ -907,14 +908,29 @@ class RimeEngine {
+@@ -907,14 +908,27 @@ class RimeEngine {
                  if (!nativeSetInput(letter)) return@editPinyinAndReadState false
              } else {
                  val option = owner.options.getOrNull(index) ?: return@editPinyinAndReadState false
-+                // 同一码段上与选中项模糊音等价的读音是同一读音的不同写法，要一起保留。
-+                // 等价类从方案 speller/algebra 的 fuzz 规则推导，不硬编码任何一组。
-+                val fuzzyKeep = owner.fuzzyKeepIds(index, fuzzy)
++                // 模糊音规则交给原生：每个音节段按自己的选中读音判等价，多段选择互不影响。
                  if (!nativeSelectPinyinSyllable(owner.inputText, owner.schemaId, option.start, option.end,
 -                        option.syllableId)) return@editPinyinAndReadState false
-+                        option.syllableId, fuzzyKeep)) return@editPinyinAndReadState false
++                        option.syllableId, fuzzy.ruleLiterals())) return@editPinyinAndReadState false
              }
              candidateRevision.incrementAndGet()
              true
@@ -154,20 +136,20 @@ index 8cb3e3b..a5adf15 100644
      internal fun applyPinyinEdit(expectedInput: String, newInput: String, caret: Int,
          protectedLength: Int = 0, protectedText: String = "", expectedSchema: String? = null,
          visibleReading: String? = null,
-@@ -1019,7 +1035,7 @@ class RimeEngine {
+@@ -1019,7 +1033,7 @@ class RimeEngine {
      private external fun nativePinyinEditSnapshot(): Array<String>
      private external fun nativePinyinSyllableOptions(): Array<String>
      private external fun nativeSelectPinyinSyllable(expectedInput: String, expectedSchema: String,
 -        start: Int, end: Int, syllableId: Int): Boolean
-+        start: Int, end: Int, syllableId: Int, fuzzyKeep: IntArray): Boolean
++        start: Int, end: Int, syllableId: Int, fuzzyRules: Array<String>): Boolean
      private external fun nativePinyinSyllablesChosen(): Int
      private external fun nativeUndoPinyinSyllable(expectedInput: String, expectedSchema: String): Boolean
      private external fun nativeSetCaret(caret: Int)
 diff --git a/app/src/main/java/com/kingzcheung/xime/service/ImePinyinSyllableSelector.kt b/app/src/main/java/com/kingzcheung/xime/service/ImePinyinSyllableSelector.kt
-index 1710185..849a3a5 100644
+index 1710185..d5af7f9 100644
 --- a/app/src/main/java/com/kingzcheung/xime/service/ImePinyinSyllableSelector.kt
 +++ b/app/src/main/java/com/kingzcheung/xime/service/ImePinyinSyllableSelector.kt
-@@ -36,9 +36,16 @@ internal class ImePinyinSyllableSelector(private val service: XimeInputMethodSer
+@@ -36,9 +36,15 @@ internal class ImePinyinSyllableSelector(private val service: XimeInputMethodSer
          val layout = service.uiState.value.inputProfile.layout
          val isCurrent = { current(snapshot.inputSessionId, snapshot.schemaId, layout) }
          if (!isCurrent() || (snapshot.letterGroup != null && layout != InputLayout.MERGED14)) { reply(null); return }
@@ -177,45 +159,96 @@ index 1710185..849a3a5 100644
              if (!isCurrent()) return@postRimeJob
 -            val result = service.rimeEngine.selectPinyinSyllable(snapshot, index, isCurrent)
 +            val chosen = snapshot.options.getOrNull(index)
-+            val keepIds = snapshot.fuzzyKeepIds(index, fuzzy)
 +            android.util.Log.i("CySyl", "fuzzy schema=${snapshot.schemaId} " +
-+                "chosen=${chosen?.pinyin} keep=${snapshot.options.filter { it.syllableId in keepIds }.map { it.pinyin }} " +
++                "chosen=${chosen?.pinyin} rules=${fuzzy.ruleLiterals().joinToString(",")} " +
 +                "all=${snapshot.options.map { it.pinyin }}")
 +            val result = service.rimeEngine.selectPinyinSyllable(snapshot, index, fuzzy, isCurrent)
              val next = result?.let {
                  service.rimeEngine.readPinyinSyllableChoices(it.engineRevision, layout == InputLayout.MERGED14, isCurrent)
              }?.copy(inputSessionId = snapshot.inputSessionId)
 diff --git a/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h b/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
-index 7094f18..a98bf76 100644
+index 7094f18..e857f14 100644
 --- a/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
 +++ b/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
-@@ -25,6 +25,12 @@
+@@ -25,6 +25,52 @@
  namespace cyime {
  namespace pinyin_selection {
  
-+// 选中的读音是硬约束；同一码段上「只差模糊音」的读音（en/eng、in/ing、uan/uang）
-+// 与它是同一个读音的两种写法，仍要一起出字。哪些算等价由调用方（Java，拿得到
-+// 每个候选项的拼音和开关状态）算好后从这里传进来：合并键布局里同一个码段本来
-+// 就会同时出现 fen/feng/gen/geng 四个正常拼写，只看 SpellingType 区分不了。
-+inline thread_local const std::set<rime::SyllableId>* g_fuzzy_keep = nullptr;
++// 模糊音规则：(被替换片段, 替换片段)。由调用方从方案 speller/algebra 的
++// `fuzz/正则/替换/` 解析后传入，代码里不出现任何一组具体模糊音。
++inline thread_local const std::vector<std::pair<std::string, std::string>>* g_fuzzy_rules = nullptr;
++
++// 汉语拼音音节最长 6（zhuang）；留一倍余量，防止 en$/eng/ 这类反向规则替换链发散。
++inline constexpr size_t kMaxFuzzySyllableLength = 12;
++
++inline std::vector<std::string> ApplyFuzzyRule(const std::string& pinyin,
++                                               const std::string& pattern,
++                                               const std::string& replacement) {
++  std::vector<std::string> out;
++  if (pinyin == pattern) out.push_back(replacement);
++  if (pinyin.size() > pattern.size() &&
++      pinyin.compare(pinyin.size() - pattern.size(), pattern.size(), pattern) == 0) {
++    out.push_back(pinyin.substr(0, pinyin.size() - pattern.size()) + replacement);
++  }
++  if (pinyin.size() > pattern.size() && pinyin.compare(0, pattern.size(), pattern) == 0) {
++    out.push_back(replacement + pinyin.substr(pattern.size()));
++  }
++  out.erase(std::remove_if(out.begin(), out.end(),
++                           [](const std::string& v) { return v.size() > kMaxFuzzySyllableLength; }),
++            out.end());
++  return out;
++}
++
++// 两个拼音是否模糊音等价：在方案规则作用下互相可达。en↔eng、in↔ing、uan↔uang
++// 是同一读音的不同写法；合并键同码不同音节（shi/shuo、fen/gen）不在同一等价类。
++inline bool FuzzyEquivalent(const std::string& a, const std::string& b) {
++  if (a.empty() || b.empty()) return false;
++  if (a == b) return true;
++  if (!g_fuzzy_rules || g_fuzzy_rules->empty()) return false;
++  std::set<std::string> seen{a};
++  std::vector<std::string> pending{a};
++  while (!pending.empty()) {
++    const std::string current = pending.back();
++    pending.pop_back();
++    for (const auto& rule : *g_fuzzy_rules) {
++      for (const auto& next : ApplyFuzzyRule(current, rule.first, rule.second)) {
++        if (next == b) return true;
++        if (seen.insert(next).second) pending.push_back(next);
++      }
++    }
++  }
++  return false;
++}
 +
  // A session-local constraint, never a spelling rewrite. The underscore makes
  // Rime discard it at the schema boundary. The engine update hook preserves
  // an unchanged selected prefix across suffix edits, while dropping damaged
-@@ -267,8 +273,18 @@ inline bool ConstrainGraph(rime::SyllableGraph* graph, size_t start, size_t end,
+@@ -249,7 +295,8 @@ inline void RebuildIndices(rime::SyllableGraph* graph) {
+ // Pure graph operation, also used by the native regression probe. Span ends
+ // include any trailing speller delimiters, exactly as Rime's graph does.
+ inline bool ConstrainGraph(rime::SyllableGraph* graph, size_t start, size_t end,
+-                           rime::SyllableId syllable, bool allow_abbreviation = false) {
++                           rime::SyllableId syllable, bool allow_abbreviation = false,
++                           const rime::Table* table = nullptr) {
+   if (!graph || start >= end || end > graph->input_length) return false;
+   auto from = graph->edges.find(start);
+   if (from == graph->edges.end()) return false;
+@@ -267,8 +314,20 @@ inline bool ConstrainGraph(rime::SyllableGraph* graph, size_t start, size_t end,
        if (edge->first <= start || source->first >= end) {
          ++edge;
        } else if (source->first == start && edge->first == end) {
 -        edge->second.clear();
 -        edge->second.emplace(syllable, chosen);
-+        // 只留选中读音，外加调用方判定为「模糊音等价」的那些读音。
-+        // 没有白名单时退回只留选中读音（硬锁）。
++        // 选中的读音是硬约束；同一码段上与它模糊音等价的读音是同一读音的
++        // 不同写法，仍要一起出字。判据用**本段自己的**选中读音算，所以多段
++        // 选择互不影响：先选 jing 再选 qian，jing 段里的 jin 不会被 qian 挤掉。
 +        decltype(edge->second) kept;
 +        kept.emplace(syllable, chosen);
-+        if (g_fuzzy_keep) {
++        const std::string chosen_pinyin = table ? table->GetSyllableById(syllable) : std::string();
++        if (!chosen_pinyin.empty()) {
 +          for (const auto& item : edge->second) {
 +            if (item.first == syllable) continue;
-+            if (g_fuzzy_keep->count(item.first) == 0) continue;
++            if (!FuzzyEquivalent(chosen_pinyin, table->GetSyllableById(item.first))) continue;
 +            kept.emplace(item.first, item.second);
 +          }
 +        }
@@ -223,78 +256,128 @@ index 7094f18..a98bf76 100644
          ++edge;
        } else {
          edge = source->second.erase(edge);
-@@ -616,7 +632,8 @@ inline bool Apply(rime::Context* context, rime::Schema* schema, const rime::Pris
+@@ -306,10 +365,14 @@ inline bool ApplyGraphLock(rime::Context* context, rime::Schema* schema,
+     return true;
+   bool applied = segment_start <= lock_start &&
+       lock_end <= segment_start + graph->input_length;
++  std::unique_ptr<rime::Dictionary> lock_dictionary = OpenDictionary(schema);
++  const rime::Table* lock_table = (lock_dictionary && lock_dictionary->primary_table())
++      ? lock_dictionary->primary_table() : nullptr;
+   for (size_t i = 0; applied && i < active; ++i) {
+     applied = ConstrainGraph(graph, lock.spans[i].start - segment_start,
+                              lock.spans[i].end - segment_start, lock.spans[i].syllable,
+-                             context->get_property(kAllowAbbreviationProperty) == "1");
++                             context->get_property(kAllowAbbreviationProperty) == "1",
++                             lock_table);
+   }
+   if (applied) {
+     if (constrained) *constrained = true;
+@@ -383,6 +446,10 @@ inline size_t BuildGraph(rime::Syllabifier& builder, const std::string& input,
+   rime::SyllableGraph before;
+   if (start != 0 && static_cast<size_t>(builder.BuildSyllableGraph(
+           input.substr(0, start), prism, &before)) != start) return fail();
++  // 拼音表把 syllableId 还原成拼音，用来判本段的模糊音等价读音是否保留。
++  std::unique_ptr<rime::Dictionary> lock_dictionary = OpenDictionary(schema);
++  const rime::Table* lock_table = (lock_dictionary && lock_dictionary->primary_table())
++      ? lock_dictionary->primary_table() : nullptr;
+   std::vector<std::pair<size_t, rime::SyllableGraph>> chosen(active);
+   size_t end = start;
+   for (size_t i = 0; i < active; ++i) {
+@@ -395,7 +462,8 @@ inline size_t BuildGraph(rime::Syllabifier& builder, const std::string& input,
+     if (static_cast<size_t>(builder.BuildSyllableGraph(
+             input.substr(end, chosen_length), prism, &chosen[i].second)) != chosen_length ||
+         !ConstrainGraph(&chosen[i].second, 0, chosen_length, lock.spans[i].syllable,
+-                        context->get_property(kAllowAbbreviationProperty) == "1")) return fail();
++                        context->get_property(kAllowAbbreviationProperty) == "1",
++                        lock_table)) return fail();
+     end = chosen_end;
+   }
+   rime::SyllableGraph after;
+@@ -616,7 +684,8 @@ inline bool Apply(rime::Context* context, rime::Schema* schema, const rime::Pris
  
  inline bool Select(rime::Context* context, rime::Schema* schema, rime::Engine* engine,
                     const std::string& expected_input, const std::string& expected_schema,
 -                   size_t start, size_t end, rime::SyllableId syllable) {
 +                   size_t start, size_t end, rime::SyllableId syllable,
-+                   const std::set<rime::SyllableId>* fuzzy_keep = nullptr) {
++                   const std::vector<std::pair<std::string, std::string>>* fuzzy_rules = nullptr) {
    if (!context || !schema || context->get_option("ascii_mode") ||
        context->input() != expected_input || schema->schema_id() != expected_schema ||
        start >= end || end > context->caret_pos() ||
-@@ -644,6 +661,14 @@ inline bool Select(rime::Context* context, rime::Schema* schema, rime::Engine* e
+@@ -644,6 +713,16 @@ inline bool Select(rime::Context* context, rime::Schema* schema, rime::Engine* e
    }
    if (lock.spans.empty() && start != confirmed) return false;
    lock.spans.push_back({start, end, syllable});
-+  // 只在这次 Apply 期间生效：RefreshNonConfirmedComposition 会在这里面重建音节图。
-+  struct FuzzyKeepScope {
-+    const std::set<rime::SyllableId>* previous;
-+    explicit FuzzyKeepScope(const std::set<rime::SyllableId>* keep) : previous(g_fuzzy_keep) {
-+      g_fuzzy_keep = keep;
++  // 只在这次 Apply 期间生效：RefreshNonConfirmedComposition 会在这里面重建音节图，
++  // 每个 span 用自己的选中读音判等价（见 ConstrainGraph），多段选择互不影响。
++  struct FuzzyRuleScope {
++    const std::vector<std::pair<std::string, std::string>>* previous;
++    explicit FuzzyRuleScope(const std::vector<std::pair<std::string, std::string>>* rules)
++        : previous(g_fuzzy_rules) {
++      g_fuzzy_rules = rules;
 +    }
-+    ~FuzzyKeepScope() { g_fuzzy_keep = previous; }
-+  } fuzzy_keep_scope(fuzzy_keep);
++    ~FuzzyRuleScope() { g_fuzzy_rules = previous; }
++  } fuzzy_rule_scope(fuzzy_rules);
    return Apply(context, schema, *dictionary->prism(), lock);
  }
  
 diff --git a/app/src/main/jni/librime_jni/rime_jni.cc b/app/src/main/jni/librime_jni/rime_jni.cc
-index 8f05a2c..7783134 100644
+index 8f05a2c..0474719 100644
 --- a/app/src/main/jni/librime_jni/rime_jni.cc
 +++ b/app/src/main/jni/librime_jni/rime_jni.cc
-@@ -774,12 +774,16 @@ public:
+@@ -774,12 +774,21 @@ public:
      }
  
      bool selectPinyinSyllable(const std::string& expectedInput, const std::string& expectedSchema,
 -                              int start, int end, int syllable) {
-+                              int start, int end, int syllable, const std::vector<int>& fuzzyKeep) {
++                              int start, int end, int syllable, const std::vector<std::string>& fuzzyRules) {
          if (start < 0 || end <= start || syllable < 0) return false;
-+        std::set<rime::SyllableId> keep;
-+        for (int id : fuzzyKeep)
-+            if (id >= 0) keep.insert(static_cast<rime::SyllableId>(id));
++        // 每条规则形如 "eng>en"：拼音里的 eng 换成 en。等价关系由原生侧按段判定。
++        std::vector<std::pair<std::string, std::string>> rules;
++        rules.reserve(fuzzyRules.size());
++        for (const auto& rule : fuzzyRules) {
++            const size_t sep = rule.find('>');
++            if (sep == std::string::npos || sep == 0 || sep + 1 >= rule.size()) continue;
++            rules.emplace_back(rule.substr(0, sep), rule.substr(sep + 1));
++        }
          auto session = rime::Service::instance().GetSession(static_cast<rime::SessionId>(session_id_));
          return session && cyime::pinyin_selection::Select(session->context(), session->schema(), session->engine(),
              expectedInput, expectedSchema, static_cast<size_t>(start),
 -            static_cast<size_t>(end), static_cast<rime::SyllableId>(syllable));
 +            static_cast<size_t>(end), static_cast<rime::SyllableId>(syllable),
-+            keep.empty() ? nullptr : &keep);
++            rules.empty() ? nullptr : &rules);
      }
  
      int pinyinSyllablesChosen() {
-@@ -2469,7 +2473,7 @@ Java_com_kingzcheung_xime_rime_RimeEngine_nativePinyinSyllableOptions(JNIEnv* en
+@@ -2469,7 +2478,7 @@ Java_com_kingzcheung_xime_rime_RimeEngine_nativePinyinSyllableOptions(JNIEnv* en
  JNIEXPORT jboolean JNICALL
  Java_com_kingzcheung_xime_rime_RimeEngine_nativeSelectPinyinSyllable(
          JNIEnv* env, jobject, jstring expectedInput, jstring expectedSchema,
 -        jint start, jint end, jint syllableId) {
-+        jint start, jint end, jint syllableId, jintArray fuzzyKeep) {
++        jint start, jint end, jint syllableId, jobjectArray fuzzyRules) {
      if (!expectedInput || !expectedSchema) return JNI_FALSE;
      const char* input = env->GetStringUTFChars(expectedInput, nullptr);
      if (!input) return JNI_FALSE;
-@@ -2478,7 +2482,16 @@ Java_com_kingzcheung_xime_rime_RimeEngine_nativeSelectPinyinSyllable(
+@@ -2478,7 +2487,22 @@ Java_com_kingzcheung_xime_rime_RimeEngine_nativeSelectPinyinSyllable(
          env->ReleaseStringUTFChars(expectedInput, input);
          return JNI_FALSE;
      }
 -    const bool selected = Rime::Instance().selectPinyinSyllable(input, schema, start, end, syllableId);
-+    std::vector<int> keep;
-+    if (fuzzyKeep) {
-+        const jsize count = env->GetArrayLength(fuzzyKeep);
-+        if (count > 0) {
-+            std::vector<jint> values(static_cast<size_t>(count));
-+            env->GetIntArrayRegion(fuzzyKeep, 0, count, values.data());
-+            keep.assign(values.begin(), values.end());
++    std::vector<std::string> rules;
++    if (fuzzyRules) {
++        const jsize count = env->GetArrayLength(fuzzyRules);
++        rules.reserve(static_cast<size_t>(count));
++        for (jsize i = 0; i < count; ++i) {
++            auto element = static_cast<jstring>(env->GetObjectArrayElement(fuzzyRules, i));
++            if (!element) continue;
++            const char* text = env->GetStringUTFChars(element, nullptr);
++            if (text) {
++                rules.emplace_back(text);
++                env->ReleaseStringUTFChars(element, text);
++            }
++            env->DeleteLocalRef(element);
 +        }
 +    }
-+    const bool selected = Rime::Instance().selectPinyinSyllable(input, schema, start, end, syllableId, keep);
++    const bool selected = Rime::Instance().selectPinyinSyllable(input, schema, start, end, syllableId, rules);
      env->ReleaseStringUTFChars(expectedSchema, schema);
      env->ReleaseStringUTFChars(expectedInput, input);
      return selected ? JNI_TRUE : JNI_FALSE;
