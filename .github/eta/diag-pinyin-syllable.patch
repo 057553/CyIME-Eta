@@ -66,6 +66,66 @@ index 1710185..0de28ad 100644
          service.keyRouter.postRimeJob {
              if (!isCurrent()) return@postRimeJob
              val result = service.rimeEngine.selectPinyinSyllable(snapshot, index, isCurrent)
+diff --git a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt
+index 7085fa6..be2e9ba 100644
+--- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt
++++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt
+@@ -313,6 +313,8 @@ private fun CandidatePageContent(
+                                 CandidateRailSymbolKey(
+                                     text = item,
+                                     onClick = {
++                                        android.util.Log.i("CySyl", "railKey click index=$index item=$item " +
++                                            "isPinyinRail=$isPinyinRail hasCallback=${callbacks.onRailPinyinSelect != null}")
+                                         if (isPinyinRail) callbacks.onRailPinyinSelect?.invoke(index)
+                                         else callbacks.onCommitText?.invoke(item)
+                                     },
+@@ -337,6 +339,8 @@ private fun CandidatePageContent(
+                                     CandidateRailSymbolKey(
+                                         text = item,
+                                         onClick = {
++                                            android.util.Log.i("CySyl", "railLazy click index=$index item=$item " +
++                                                "isPinyinRail=$isPinyinRail hasCallback=${callbacks.onRailPinyinSelect != null}")
+                                             if (isPinyinRail) callbacks.onRailPinyinSelect?.invoke(index)
+                                             else callbacks.onCommitText?.invoke(item)
+                                         },
+@@ -939,7 +943,10 @@ private fun SizedExpandedLeftRail(state: CandidatePageState, callbacks: Candidat
+             LazyColumn(Modifier.fillMaxSize().testTag("expanded-pinyin-options")) {
+                 itemsIndexed(items) { index, item ->
+                     T9CandidateItem(text = item, onClick = {
+-                        if (state.railPinyinOptions.isNotEmpty()) callbacks.onRailPinyinSelect?.invoke(index)
++                        if (state.railPinyinOptions.isNotEmpty()) {
++                            android.util.Log.i("CySyl", "railBottom click index=$index")
++                            callbacks.onRailPinyinSelect?.invoke(index)
++                        }
+                         else callbacks.onCommitText?.invoke(item)
+                     }, onPress = { callbacks.onKeyPressDown?.invoke(item) }, textColor = state.textColor,
+                         backgroundColor = keyBg, accentColor = state.railAccentColor,
+diff --git a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt
+index 8c0f5c4..a1f02ee 100644
+--- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt
++++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt
+@@ -2158,11 +2158,20 @@ fun KeyboardView(
+                                 }
+                             } else {
+                                 val snapshot = syllableChoices
+-                                if (snapshot != null && snapshot.engineRevision == candidateState.value.engineRevision) {
++                                val nowRev = candidateState.value.engineRevision
++                                android.util.Log.i("CySyl", "railSelect index=$index snapshot=${snapshot != null} " +
++                                    "snapshotRev=${snapshot?.engineRevision} nowRev=$nowRev " +
++                                    "options=${snapshot?.options?.size} labels=${snapshot?.labels} " +
++                                    "hasCallback=${callbacks.onSelectPinyinSyllable != null}")
++                                if (snapshot != null && snapshot.engineRevision == nowRev) {
+                                     val request = syllableRequest
+                                     callbacks.onSelectPinyinSyllable?.invoke(snapshot, index) { updated ->
++                                        android.util.Log.i("CySyl", "railSelect reply updated=${updated != null}")
+                                         if (request == syllableRequest) syllableChoices = updated
+                                     }
++                                } else {
++                                    android.util.Log.i("CySyl", "railSelect dropped: snapshotNull=${snapshot == null} " +
++                                        "revisionMismatch=${snapshot != null && snapshot.engineRevision != nowRev}")
+                                 }
+                             }
+                         },
 diff --git a/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h b/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
 index 74923a7..8986167 100644
 --- a/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
