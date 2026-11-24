@@ -1,20 +1,20 @@
 diff --git a/app/src/main/java/com/kingzcheung/xime/rime/PinyinSyllableChoices.kt b/app/src/main/java/com/kingzcheung/xime/rime/PinyinSyllableChoices.kt
-index d99fd84..5ac8541 100644
+index d99fd84..c1b1fcb 100644
 --- a/app/src/main/java/com/kingzcheung/xime/rime/PinyinSyllableChoices.kt
 +++ b/app/src/main/java/com/kingzcheung/xime/rime/PinyinSyllableChoices.kt
-@@ -26,12 +26,38 @@ data class PinyinSyllableChoices(
+@@ -26,12 +26,108 @@ data class PinyinSyllableChoices(
      val labels: List<String> get() = letterGroup?.map { it.toString() } ?: options.map { it.pinyin }
      val selectedIndex: Int get() = letterGroup?.indexOf(inputText) ?: options.indexOfFirst { it.selected }
  
 +    /**
-+     * 选中第 [index] 项时，同一码段上与它只差模糊音的读音（含它自己）。
++     * 选中第 [index] 项时，同一码段上与它模糊音等价的读音（含它自己）。
 +     * 原生侧只保留这些读音出字，其余同码不同音节全部丢弃。
++     * [fuzzy] 由方案的 `speller/algebra` 推导，规则变了这里自动跟着变。
 +     */
-+    internal fun fuzzyKeepIds(index: Int): IntArray {
++    internal fun fuzzyKeepIds(index: Int, fuzzy: FuzzySyllableEquivalences): IntArray {
 +        val chosen = options.getOrNull(index) ?: return IntArray(0)
-+        val key = fuzzySyllableKey(chosen.pinyin)
 +        return options.filter { it.start == chosen.start && it.end == chosen.end }
-+            .filter { fuzzySyllableKey(it.pinyin) == key }
++            .filter { fuzzy.equivalent(chosen.pinyin, it.pinyin) }
 +            .map { it.syllableId }
 +            .distinct()
 +            .toIntArray()
@@ -27,37 +27,123 @@ index d99fd84..5ac8541 100644
  }
  
 +/**
-+ * 同一个读音的模糊音写法归一化后相等：en/eng、in/ing、uan/uang 是同一音节的不同写法，
-+ * 选读音时它们该一起出字（用户 11-24：fen 选中后 feng 的字不能消失）。
-+ * 而合并键布局里同码不同音节（shi / shuo、fen / gen）归一化后不等，选哪个就只剩哪个。
++ * 模糊音等价类，全部从方案 speller/algebra 里的 `fuzz/正则/替换/` 规则推导，
++ * 不硬编码任何一组模糊音：
++ *
++ *   fuzz/eng$/en/   →  eng 与 en 等价
++ *   fuzz/en$/eng/   →  （反向，等价类闭合后就是 {en, eng}）
++ *   fuzz/^zh/z/     →  zh 与 z 等价（用户自己加 n/l、zh/z 之类也自动生效）
++ *
++ * 等价关系做完并查集后，任意两个拼音只要落在同一等价类就是「同一读音的不同写法」，
++ * 选读音时它们该一起出字；而合并键布局同码不同音节（shi/shuo、fen/gen）不会落到
++ * 同一类，选哪个就只剩哪个。
++ *
++ * [rules] 传 `speller/algebra` 的原始字符串列表；没有 fuzz 规则时等价类为空，
++ * 退化成硬锁（只保留选中的读音）。
 + */
-+internal fun fuzzySyllableKey(pinyin: String): String = when {
-+    pinyin.length > 3 && pinyin.endsWith("eng") -> pinyin.dropLast(1)
-+    pinyin.length > 3 && pinyin.endsWith("ing") -> pinyin.dropLast(1)
-+    pinyin.length > 4 && pinyin.endsWith("uang") -> pinyin.dropLast(1)
-+    else -> pinyin
++internal class FuzzySyllableEquivalences(rules: List<String>) {
++    /** 每条 fuzz 规则的「被替换片段」；等价类由这些片段是否互相派生决定。 */
++    private val literalReplacements: List<Pair<String, String>> = rules.mapNotNull { rule ->
++        val match = FUZZ_RULE.matchEntire(rule.trim()) ?: return@mapNotNull null
++        val pattern = match.groupValues[1]
++        val replacement = match.groupValues[2]
++        // 只处理「锚定在词尾/词首的纯字母」这类可逆的规则；正则太复杂时跳过，
++        // 宁可少合并也不要把不相干的音节并到一起。
++        val anchorEnd = pattern.endsWith("$") && pattern.startsWith("/").not()
++        val literal = pattern.trimStart('^').trimEnd('$')
++        if (literal.isEmpty() || literal.any { it !in 'a'..'z' }) return@mapNotNull null
++        if (!anchorEnd && !pattern.startsWith("^")) return@mapNotNull null
++        if (replacement.isEmpty() || replacement.any { it !in 'a'..'z' }) return@mapNotNull null
++        literal to replacement
++    }
++
++    /** 每个拼音的可达集合只算一次；音节总共四百多个，缓存后每次点击零成本。 */
++    private val reachableCache = HashMap<String, Set<String>>()
++
++    /** 两个拼音是否模糊音等价：把一个拼音按规则逐条替换，看能否得到另一个。 */
++    fun equivalent(a: String, b: String): Boolean {
++        if (a == b) return true
++        if (literalReplacements.isEmpty()) return false
++        return reachable(a).contains(b)
++    }
++
++    private fun reachable(from: String): Set<String> =
++        reachableCache.getOrPut(from) {
++            val seen = mutableSetOf(from)
++            val queue = ArrayDeque(listOf(from))
++            while (queue.isNotEmpty()) {
++                val current = queue.removeFirst()
++                for ((pattern, replacement) in literalReplacements) {
++                    for (next in applyRule(current, pattern, replacement)) {
++                        if (seen.add(next)) queue.addLast(next)
++                    }
++                }
++            }
++            seen.remove(from)
++            seen
++        }
++
++    /** 把一条 fuzz 规则作用到一个拼音上，返回所有可能的替换结果。 */
++    private fun applyRule(pinyin: String, pattern: String, replacement: String): List<String> {
++        val out = mutableListOf<String>()
++        // 形如 foo → bar：整段等于 foo 时替换
++        if (pinyin == pattern) out.add(replacement)
++        // 形如 foo 结尾：把结尾的 foo 换成 replacement
++        if (pinyin.length > pattern.length && pinyin.endsWith(pattern)) {
++            out.add(pinyin.dropLast(pattern.length) + replacement)
++        }
++        // 形如开头是 foo：把开头的 foo 换成 replacement
++        if (pinyin.length > pattern.length && pinyin.startsWith(pattern)) {
++            out.add(replacement + pinyin.drop(pattern.length))
++        }
++        // 反向规则（en$/eng/ 与 eng$/en/）会互相派生，必须限长，否则替换链不收敛。
++        return out.filter { it.length <= MAX_SYLLABLE_LENGTH }
++    }
++
++    private companion object {
++        /** `fuzz/被替换/替换/` */
++        val FUZZ_RULE = Regex("""^fuzz/(.*)/([^/]*)/$""")
++        /** 汉语拼音音节最长 6（zhuang / chuang），留一倍余量防止替换链发散。 */
++        const val MAX_SYLLABLE_LENGTH = 12
++    }
 +}
 +
  /** Reject malformed native records instead of exposing a non-actionable reading. */
  internal fun parsePinyinSyllableOptions(records: Array<String>, input: String,
      protectedLength: Int): List<PinyinSyllableOption> = records.mapNotNull { record ->
 diff --git a/app/src/main/java/com/kingzcheung/xime/rime/RimeEngine.kt b/app/src/main/java/com/kingzcheung/xime/rime/RimeEngine.kt
-index 8cb3e3b..3ad1499 100644
+index 8cb3e3b..0197dd0 100644
 --- a/app/src/main/java/com/kingzcheung/xime/rime/RimeEngine.kt
 +++ b/app/src/main/java/com/kingzcheung/xime/rime/RimeEngine.kt
-@@ -907,8 +907,10 @@ class RimeEngine {
+@@ -907,14 +907,26 @@ class RimeEngine {
                  if (!nativeSetInput(letter)) return@editPinyinAndReadState false
              } else {
                  val option = owner.options.getOrNull(index) ?: return@editPinyinAndReadState false
-+                // 同一码段上只差模糊音的读音（en/eng 等）与选中项是同一读音的不同写法，要一起保留。
-+                val fuzzyKeep = owner.fuzzyKeepIds(index)
++                // 同一码段上与选中项模糊音等价的读音是同一读音的不同写法，要一起保留。
++                // 等价类从方案 speller/algebra 的 fuzz 规则推导，不硬编码任何一组。
++                val fuzzyKeep = owner.fuzzyKeepIds(index, fuzzyEquivalences(owner.schemaId))
                  if (!nativeSelectPinyinSyllable(owner.inputText, owner.schemaId, option.start, option.end,
 -                        option.syllableId)) return@editPinyinAndReadState false
 +                        option.syllableId, fuzzyKeep)) return@editPinyinAndReadState false
              }
              candidateRevision.incrementAndGet()
              true
-@@ -1019,7 +1021,7 @@ class RimeEngine {
+         }
+     }
+ 
++    /** 方案的模糊音等价类，按 schemaId 缓存；规则来自 speller/algebra。 */
++    private val fuzzyEquivalenceCache = HashMap<String, com.kingzcheung.xime.rime.FuzzySyllableEquivalences>()
++
++    private fun fuzzyEquivalences(schemaId: String): com.kingzcheung.xime.rime.FuzzySyllableEquivalences =
++        fuzzyEquivalenceCache.getOrPut(schemaId) {
++            com.kingzcheung.xime.rime.FuzzySyllableEquivalences(
++                getSchemaList(schemaId, "speller/algebra"))
++        }
++
+     internal fun applyPinyinEdit(expectedInput: String, newInput: String, caret: Int,
+         protectedLength: Int = 0, protectedText: String = "", expectedSchema: String? = null,
+         visibleReading: String? = null,
+@@ -1019,7 +1031,7 @@ class RimeEngine {
      private external fun nativePinyinEditSnapshot(): Array<String>
      private external fun nativePinyinSyllableOptions(): Array<String>
      private external fun nativeSelectPinyinSyllable(expectedInput: String, expectedSchema: String,
