@@ -1,0 +1,12 @@
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -165,6 +165,9 @@
+             }
+         }
+         release {
++            // 与官方版共存：包名加 .eta 后缀，可与 com.cyletix.cyime 并排安装，
++            // 官方版的数据、自建布局、词库完全不受影响。namespace 不动。
++            applicationIdSuffix = ".eta"
+             isMinifyEnabled = true
+             isShrinkResources = true
+             proguardFiles(

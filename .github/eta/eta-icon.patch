@@ -1,0 +1,373 @@
+diff -ruN a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+--- a/app/src/main/AndroidManifest.xml	2026-11-23 23:48:52.412339987 +0000
++++ b/app/src/main/AndroidManifest.xml	2026-11-23 23:48:52.412339987 +0000
+@@ -33,11 +33,11 @@
+         android:allowBackup="true"
+         android:dataExtractionRules="@xml/data_extraction_rules"
+         android:fullBackupContent="@xml/backup_rules"
+-        android:icon="@mipmap/cyime_launcher_facet"
++        android:icon="@mipmap/eta_launcher"
+         android:label="@string/app_name"
+         android:localeConfig="@xml/locales_config"
+         android:networkSecurityConfig="@xml/network_security_config"
+-        android:roundIcon="@mipmap/cyime_launcher_facet"
++        android:roundIcon="@mipmap/eta_launcher"
+         android:supportsRtl="true"
+         android:theme="@style/Theme.Xime"
+         tools:targetApi="31">
+@@ -99,7 +99,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconOriginal"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="true" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_facet" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -108,7 +108,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconNeon"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_neon" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -117,7 +117,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconGlass"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_glass" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -126,7 +126,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconFacet"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_facet" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -135,7 +135,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconFrost"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_frost" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -145,7 +145,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconOriginalBare"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@drawable/cyime_launcher_bare_facet" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -155,7 +155,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconNeonBare"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@drawable/cyime_launcher_bare_neon" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -165,7 +165,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconGlassBare"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@drawable/cyime_launcher_bare_glass" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -175,7 +175,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconFacetBare"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@drawable/cyime_launcher_bare_facet" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -185,7 +185,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconFrostBare"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@drawable/cyime_launcher_bare_frost" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -196,7 +196,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconThemeLavender"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_theme_lavender" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -205,7 +205,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconThemeSoftblue"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_theme_softblue" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -214,7 +214,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconThemeSakura"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_theme_sakura" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -223,7 +223,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconThemeSunset"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_theme_sunset" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -232,7 +232,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconThemeAurora"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_theme_aurora" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -241,7 +241,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconThemeMint"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_theme_mint" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -250,7 +250,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconThemeCream"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_theme_cream" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -259,7 +259,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconThemeDesert"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_theme_desert" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -268,7 +268,7 @@
+         <activity-alias android:name="com.kingzcheung.xime.launcher.IconThemeMono"
+             android:targetActivity="com.kingzcheung.xime.MainActivity"
+             android:enabled="false" android:exported="true"
+-            android:icon="@mipmap/cyime_launcher_theme_mono" android:label="@string/app_name">
++            android:icon="@mipmap/eta_launcher" android:label="@string/app_name">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -280,14 +280,14 @@
+         <activity android:name="com.kingzcheung.xime.ui.caption.CaptionActivity"
+             android:exported="false" android:launchMode="singleTask"
+             android:taskAffinity="com.kingzcheung.xime.caption" android:label="字幕"
+-            android:icon="@mipmap/caption_launcher"
++            android:icon="@mipmap/eta_launcher"
+             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|density|fontScale|uiMode"
+             android:windowSoftInputMode="adjustResize"
+             android:theme="@style/Theme.Xime.Caption" />
+         <!-- 桌面上单独的“字幕”图标：默认关闭，在“语音转文本 → 字幕”里打开（CaptionLauncherIcon） -->
+         <activity-alias android:name="com.kingzcheung.xime.ui.caption.CaptionLauncher"
+             android:targetActivity="com.kingzcheung.xime.ui.caption.CaptionActivity"
+-            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/caption_launcher">
++            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/eta_launcher">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -296,7 +296,7 @@
+         <!-- 字幕桌面入口的主题色版本：已打开字幕图标时，换主题只启用对应颜色的一个（CaptionLauncherIcon） -->
+         <activity-alias android:name="com.kingzcheung.xime.ui.caption.CaptionLauncherLavender"
+             android:targetActivity="com.kingzcheung.xime.ui.caption.CaptionActivity"
+-            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/caption_launcher_lavender">
++            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/eta_launcher">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -304,7 +304,7 @@
+         </activity-alias>
+         <activity-alias android:name="com.kingzcheung.xime.ui.caption.CaptionLauncherSoftblue"
+             android:targetActivity="com.kingzcheung.xime.ui.caption.CaptionActivity"
+-            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/caption_launcher_softblue">
++            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/eta_launcher">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -312,7 +312,7 @@
+         </activity-alias>
+         <activity-alias android:name="com.kingzcheung.xime.ui.caption.CaptionLauncherSakura"
+             android:targetActivity="com.kingzcheung.xime.ui.caption.CaptionActivity"
+-            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/caption_launcher_sakura">
++            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/eta_launcher">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -320,7 +320,7 @@
+         </activity-alias>
+         <activity-alias android:name="com.kingzcheung.xime.ui.caption.CaptionLauncherSunset"
+             android:targetActivity="com.kingzcheung.xime.ui.caption.CaptionActivity"
+-            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/caption_launcher_sunset">
++            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/eta_launcher">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -328,7 +328,7 @@
+         </activity-alias>
+         <activity-alias android:name="com.kingzcheung.xime.ui.caption.CaptionLauncherAurora"
+             android:targetActivity="com.kingzcheung.xime.ui.caption.CaptionActivity"
+-            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/caption_launcher_aurora">
++            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/eta_launcher">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -336,7 +336,7 @@
+         </activity-alias>
+         <activity-alias android:name="com.kingzcheung.xime.ui.caption.CaptionLauncherMint"
+             android:targetActivity="com.kingzcheung.xime.ui.caption.CaptionActivity"
+-            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/caption_launcher_mint">
++            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/eta_launcher">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -344,7 +344,7 @@
+         </activity-alias>
+         <activity-alias android:name="com.kingzcheung.xime.ui.caption.CaptionLauncherCream"
+             android:targetActivity="com.kingzcheung.xime.ui.caption.CaptionActivity"
+-            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/caption_launcher_cream">
++            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/eta_launcher">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -352,7 +352,7 @@
+         </activity-alias>
+         <activity-alias android:name="com.kingzcheung.xime.ui.caption.CaptionLauncherDesert"
+             android:targetActivity="com.kingzcheung.xime.ui.caption.CaptionActivity"
+-            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/caption_launcher_desert">
++            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/eta_launcher">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -360,7 +360,7 @@
+         </activity-alias>
+         <activity-alias android:name="com.kingzcheung.xime.ui.caption.CaptionLauncherMono"
+             android:targetActivity="com.kingzcheung.xime.ui.caption.CaptionActivity"
+-            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/caption_launcher_mono">
++            android:enabled="false" android:exported="true" android:label="字幕" android:icon="@mipmap/eta_launcher">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+                 <category android:name="android.intent.category.LAUNCHER" />
+@@ -368,7 +368,7 @@
+         </activity-alias>
+         <!-- 下拉快捷开关里的“字幕” -->
+         <service android:name="com.kingzcheung.xime.ui.caption.CaptionTileService"
+-            android:exported="true" android:label="字幕" android:icon="@drawable/caption_launcher_foreground"
++            android:exported="true" android:label="字幕" android:icon="@mipmap/eta_launcher"
+             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+             <intent-filter>
+                 <action android:name="android.service.quicksettings.action.QS_TILE" />
+diff -ruN a/app/src/main/res/drawable/eta_icon_background.xml b/app/src/main/res/drawable/eta_icon_background.xml
+--- a/app/src/main/res/drawable/eta_icon_background.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/app/src/main/res/drawable/eta_icon_background.xml	2026-11-23 23:48:52.412339987 +0000
+@@ -0,0 +1,16 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- eta 版图标背景：浅紫底 + 紫色圆环。 -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="108dp"
++    android:height="108dp"
++    android:viewportWidth="108"
++    android:viewportHeight="108">
++    <path
++        android:pathData="M0,0h108v108h-108z"
++        android:fillColor="#F7F4FF" />
++    <path
++        android:pathData="M30,45 a24,24 0 1,0 48,0 a24,24 0 1,0 -48,0"
++        android:strokeColor="#6550CC"
++        android:strokeWidth="3.0"
++        android:fillColor="#00000000" />
++</vector>
+diff -ruN a/app/src/main/res/drawable/eta_icon_foreground.xml b/app/src/main/res/drawable/eta_icon_foreground.xml
+--- a/app/src/main/res/drawable/eta_icon_foreground.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/app/src/main/res/drawable/eta_icon_foreground.xml	2026-11-23 23:48:52.412339987 +0000
+@@ -0,0 +1,20 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- eta 版图标前景：希腊字母 η（Eta）+ 三点候选。 -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="108dp"
++    android:height="108dp"
++    android:viewportWidth="108"
++    android:viewportHeight="108">
++    <path
++        android:pathData="M43.8,59.25 L43.8,34.21 L49.36,34.21 L49.36,38.9 Q49.81,36.53 51.59,35.14 Q53.36,33.75 56.09,33.75 Q59.78,33.75 61.99,36.21 Q64.2,38.67 64.2,42.81 L64.2,59.25 L58.51,59.25 L58.51,43.49 Q58.51,41.17 57.3,39.92 Q56.09,38.67 54.05,38.67 Q51.91,38.67 50.7,39.94 Q49.49,41.22 49.49,43.59 L49.49,59.25 Z"
++        android:fillColor="#20213A" />
++    <path
++        android:pathData="M47.1,76.0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0"
++        android:fillColor="#B0A5DA" />
++    <path
++        android:pathData="M51.9,76.0 a2.1,2.1 0 1,0 4.2,0 a2.1,2.1 0 1,0 -4.2,0"
++        android:fillColor="#6A52D0" />
++    <path
++        android:pathData="M58.1,76.0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0"
++        android:fillColor="#B0A5DA" />
++</vector>
+diff -ruN a/app/src/main/res/drawable/eta_icon_monochrome.xml b/app/src/main/res/drawable/eta_icon_monochrome.xml
+--- a/app/src/main/res/drawable/eta_icon_monochrome.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/app/src/main/res/drawable/eta_icon_monochrome.xml	2026-11-23 23:48:52.412339987 +0000
+@@ -0,0 +1,20 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- 单色层（Android 13 主题图标）：系统只取 alpha 上色。 -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="108dp"
++    android:height="108dp"
++    android:viewportWidth="108"
++    android:viewportHeight="108">
++    <path
++        android:pathData="M43.8,59.25 L43.8,34.21 L49.36,34.21 L49.36,38.9 Q49.81,36.53 51.59,35.14 Q53.36,33.75 56.09,33.75 Q59.78,33.75 61.99,36.21 Q64.2,38.67 64.2,42.81 L64.2,59.25 L58.51,59.25 L58.51,43.49 Q58.51,41.17 57.3,39.92 Q56.09,38.67 54.05,38.67 Q51.91,38.67 50.7,39.94 Q49.49,41.22 49.49,43.59 L49.49,59.25 Z"
++        android:fillColor="#FFFFFFFF" />
++    <path
++        android:pathData="M47.1,76.0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0"
++        android:fillColor="#FFFFFFFF" />
++    <path
++        android:pathData="M51.9,76.0 a2.1,2.1 0 1,0 4.2,0 a2.1,2.1 0 1,0 -4.2,0"
++        android:fillColor="#FFFFFFFF" />
++    <path
++        android:pathData="M58.1,76.0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0"
++        android:fillColor="#FFFFFFFF" />
++</vector>
+diff -ruN a/app/src/main/res/mipmap-anydpi-v26/eta_launcher.xml b/app/src/main/res/mipmap-anydpi-v26/eta_launcher.xml
+--- a/app/src/main/res/mipmap-anydpi-v26/eta_launcher.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/app/src/main/res/mipmap-anydpi-v26/eta_launcher.xml	2026-11-23 23:48:52.412339987 +0000
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
++    <background android:drawable="@drawable/eta_icon_background" />
++    <foreground android:drawable="@drawable/eta_icon_foreground" />
++    <monochrome android:drawable="@drawable/eta_icon_monochrome" />
++</adaptive-icon>

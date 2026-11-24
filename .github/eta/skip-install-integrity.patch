@@ -1,0 +1,16 @@
+--- a/app/src/main/java/com/kingzcheung/xime/security/InstallIntegrity.kt
++++ b/app/src/main/java/com/kingzcheung/xime/security/InstallIntegrity.kt
+@@ -46,9 +46,10 @@
+     /** 第一次调用要读包信息，放后台线程；之后直接返回缓存。 */
+     fun check(context: Context): Result {
+         cached?.let { return it }
+-        val result = if (BuildConfig.DEBUG) Result.SKIPPED else readSigners(context).let { signers ->
+-            if (signers == null) Result.UNKNOWN else classify(signers.first, signers.second)
+-        }
++        // 自编译包用自建 keystore 签名，证书必然不在 OFFICIAL_CERTS 里，原逻辑会在每次打开设置时弹
++        // 「非官方签名」警告。这里直接返回 OFFICIAL：本包只给自己装，不需要这项提示。
++        // 原比对逻辑（classify / readSigners）原样保留，官方包不受影响。
++        val result = Result.OFFICIAL
+         cached = result
+         return result
+     }

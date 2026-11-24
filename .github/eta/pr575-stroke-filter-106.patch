@@ -1,0 +1,960 @@
+diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateBar.kt b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateBar.kt
+--- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateBar.kt	2026-11-24 01:14:23.508221930 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateBar.kt	2026-11-24 01:14:23.508221930 +0000
+@@ -241,6 +241,7 @@
+     state: CandidateBarState,
+     page: KeyboardPage = KeyboardPage.Main(com.kingzcheung.xime.keyboard.MainType.FULL),
+     candidatePageExpanded: Boolean = false,
++    strokeFilterLabel: String = "",
+     toolbarActions: List<ToolbarAction> = emptyList(),
+     visuals: CandidateBarVisuals,
+     callbacks: CandidateBarCallbacks,
+@@ -336,7 +337,7 @@
+         preferences.registerOnSharedPreferenceChangeListener(listener)
+         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+     }
+-    val showCompositionCancel = showCancelButton && state !is CandidateBarState.Idle && callbacks.onCancelInput != null
++    val showCompositionCancel = (showCancelButton || strokeFilterLabel.isNotEmpty()) && state !is CandidateBarState.Idle && callbacks.onCancelInput != null
+     // 开了「候选滑到头回弹展开」又选了「关闭键位置：右边」（11-22 他）：取消／关联想画成「×」放在右边收起键盘那一格，
+     // 左边不放；打字时点它取消、出联想时点它关联想、回到空闲后同一个位置是收起键盘。开关关着时和 1.15.101 一样。
+     // 「右边一处关」= 左右滑展开开着且关闭键放右边：右边那一格只用来关，▾/▴ 不放（展开、收回只靠滑）。
+@@ -631,7 +632,13 @@
+                 .cySwapFadeIn(state is CandidateBarState.Idle),
+             verticalAlignment = Alignment.CenterVertically
+         ) {
+-            if (cancelAtLeft && closesAssociation && associationCancelCross) {
++            if (cancelAtLeft && strokeFilterLabel.isNotEmpty()) {
++                KeyboardToolbarButton({ callbacks.onCancelInput?.invoke() }, edgePressedFill,
++                    slotWidth = edgeSlot, restingFill = edgeButtonFill, cornerRadius = edgeCorner, continuousPill = true) {
++                    Text(strokeFilterLabel, color = protectedVisuals.textColor, fontSize = 10.sp, lineHeight = 10.sp, maxLines = 2)
++                }
++                Spacer(Modifier.width(4.dp).fillMaxHeight().candidateGapTaps())
++            } else if (cancelAtLeft && closesAssociation && associationCancelCross) {
+                 KeyboardToolbarButton({ callbacks.onCancelInput?.invoke() }, edgePressedFill,
+                     modifier = Modifier.testTag("association-cancel-cross"), restingFill = edgeButtonFill,
+                     slotWidth = edgeSlot, cornerRadius = edgeCorner, continuousPill = true) {
+@@ -716,7 +723,7 @@
+             // 展开靠右边 ▾。往左拉展开只是附加，设置「候选滑到头回弹展开」打开才有：滑到头再往左拉过门槛松手展开（[PullToExpandCandidates]）。
+             if (state is CandidateBarState.ChineseCandidates || (isGlidePreview && state is CandidateBarState.AssociationOnly) ||
+                 (splitGapX != null && state !is CandidateBarState.Idle) ||
+-                (candidatePageExpanded && state is CandidateBarState.AssociationOnly && state.hasMore)) {
++                (candidatePageExpanded && state is CandidateBarState.AssociationOnly && (state.hasMore || strokeFilterLabel.isNotEmpty()))) {
+                 val previewAssociations = isGlidePreview && state is CandidateBarState.AssociationOnly
+                 val stripCallbacks = if (isGlidePreview) callbacks.copy(
+                     onVisibleCandidatesChanged = null,
+diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt
+--- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt	2026-11-24 01:14:23.512221930 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt	2026-11-24 01:14:23.516221930 +0000
+@@ -97,6 +97,10 @@
+     val candidates: List<CandidateEntry> = emptyList(),
+     val engineRevision: Long = 0L,
+     val associationCandidates: List<String> = emptyList(),
++    val strokeInputActive: Boolean = false,
++    val onStroke: ((Char) -> Unit)? = null,
++    val onStrokeDrawing: ((Boolean) -> Unit)? = null,
++    val onStrokeInk: ((androidx.compose.ui.geometry.Offset?) -> Unit)? = null,
+     val backgroundColor: Color,
+     val textColor: Color,
+     val keyBackgroundColor: Color = Color.Unspecified,
+@@ -139,6 +143,7 @@
+     val onRailPinyinSelect: ((Int) -> Unit)? = null,
+     val onCommitText: ((String) -> Unit)? = null,
+     val onDelete: (() -> Unit)? = null,
++    val onClearStrokeFilter: (() -> Unit)? = null,
+     val onClear: (() -> Unit)? = null,
+     val onEnter: (() -> Unit)? = null,
+     val onKeyPressDown: ((String) -> Unit)? = null,
+@@ -149,6 +154,14 @@
+     val onCollapse: (() -> Unit)? = null,
+ )
+ 
++/** One horizontal gesture clears the filter once and never deletes underlying input. */
++internal fun strokeFilterDeleteDrag(clear: () -> Unit): DeleteDragSession {
++    var cleared = false
++    return DeleteDragSession(move = { distance ->
++        if (!cleared && distance != 0) { cleared = true; clear() }
++    }, finish = {})
++}
++
+ /** 左栏快捷符号（对齐主流输入法候选展开页的符号栏）。 */
+ private val QUICK_SYMBOLS = listOf("？", "！", "……", "~")
+ 
+@@ -385,9 +398,12 @@
+                     }
+                     LazyColumn(
+                         modifier = Modifier.fillMaxSize()
++                            .candidateStrokeGesture(state.strokeInputActive, { state.onStroke?.invoke(it) },
++                                { state.onStrokeDrawing?.invoke(it) }, { state.onStrokeInk?.invoke(it) })
+                             .onSizeChanged { viewportHeightPx = it.height }
+                             .testTag("expanded-candidates"),
+                         state = listState,
++                        userScrollEnabled = !state.strokeInputActive,
+                         flingBehavior = rememberCandidateFlingBehavior(),
+                         contentPadding = PaddingValues(vertical = 6.dp)
+                     ) {
+@@ -474,21 +490,25 @@
+                         LocalKeyboardKeyVisualMetrics provides if (matchKeyboard) LocalKeyboardKeyVisualMetrics.current else KeyVisualMetrics.Unspecified,
+                         LocalKeyboardKeyContentScale provides if (matchKeyboard) LocalKeyboardKeyContentScale.current else 1f,
+                     ) {
++                        val parentDeleteDrag = LocalDeleteDrag.current
++                        val clearStrokes = callbacks.onClearStrokeFilter
++                        val deleteDrag = if (clearStrokes != null) ({ strokeFilterDeleteDrag(clearStrokes) }) else parentDeleteDrag
++                        CompositionLocalProvider(LocalDeleteDrag provides deleteDrag) {
+                         SwipeableIconKeyButton(
+                             icon = rememberVectorPainter(Icons.AutoMirrored.Filled.Backspace),
+                             onClick = { callbacks.onDelete?.invoke() },
+                             onLongClick = callbacks.onDelete,
+                             onPress = { callbacks.onKeyPressDown?.invoke("delete") },
+                             onRelease = { callbacks.onKeyRelease?.invoke("delete") },
+-                            onSwipe = callbacks.onClearComposition,
+-                            onSwipeUp = callbacks.onClear,
+-                            onSwipeDown = callbacks.onUndoClear,
++                            onSwipe = clearStrokes ?: callbacks.onClearComposition,
++                            onSwipeUp = clearStrokes ?: callbacks.onClear,
++                            onSwipeDown = clearStrokes ?: callbacks.onUndoClear,
+                             distanceDelete = true,
+                             followSymbolSwipeDirection = true,
+                             upFeedback = KeyFlickFeedback.DELETE,
+-                            swipeUpLabel = "清空",
+-                            downFeedback = KeyFlickFeedback.UNDO,
+-                            swipeDownLabel = "撤回",
++                            swipeUpLabel = if (clearStrokes != null) "清除笔画" else "清空",
++                            downFeedback = if (clearStrokes != null) KeyFlickFeedback.DELETE else KeyFlickFeedback.UNDO,
++                            swipeDownLabel = if (clearStrokes != null) "清除笔画" else "撤回",
+                             backgroundColor = LocalFunctionKeyColors.current?.background ?: keyBg,
+                             iconColor = LocalFunctionKeyColors.current?.foreground ?: state.textColor,
+                             modifier = railKeyModifier.then(if (deleteWidth != null) Modifier.width(deleteWidth)
+diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateStrokeFilter.kt b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateStrokeFilter.kt
+--- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateStrokeFilter.kt	1970-01-01 00:00:00.000000000 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateStrokeFilter.kt	2026-11-24 01:14:23.524221930 +0000
+@@ -0,0 +1,139 @@
++package com.kingzcheung.xime.ui.keyboard
++
++import android.content.Context
++import androidx.compose.foundation.gestures.awaitEachGesture
++import androidx.compose.foundation.gestures.awaitFirstDown
++import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
++import androidx.compose.foundation.gestures.drag
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.produceState
++import androidx.compose.runtime.rememberUpdatedState
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.setValue
++import androidx.compose.runtime.staticCompositionLocalOf
++import androidx.compose.ui.composed
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.input.pointer.pointerInput
++import androidx.compose.ui.layout.LayoutCoordinates
++import androidx.compose.ui.layout.onGloballyPositioned
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++import kotlin.math.abs
++
++/** The packaged Rime stroke table may give a character more than one valid spelling. */
++internal class CandidateStrokeTable(private val codes: Map<String, List<String>>) {
++    fun matches(text: String, prefix: String): Boolean {
++        if (prefix.isEmpty()) return true
++        if (text.isEmpty()) return false
++        val first = text.substring(0, Character.charCount(text.codePointAt(0)))
++        return codes[first]?.any { code ->
++            code.length >= prefix.length && prefix.indices.all { i ->
++                code[i] == prefix[i] || prefix[i] == 'N' && (code[i] == 'n' || code[i] == 'p')
++            }
++        } == true
++    }
++    companion object {
++        fun load(context: Context): CandidateStrokeTable {
++            val rows = HashMap<String, MutableList<String>>()
++            context.assets.open("rime_chinese/stroke.dict.yaml").bufferedReader().useLines { lines ->
++                lines.forEach { line ->
++                    val fields = line.split('\t', limit = 3)
++                    if (fields.size >= 2 && fields[0].isNotEmpty() && fields[1].isNotEmpty() &&
++                        fields[1].all { it in "hspnz" }) rows.getOrPut(fields[0]) { mutableListOf() }.add(fields[1])
++                }
++            }
++            return CandidateStrokeTable(rows)
++        }
++    }
++}
++
++@Composable
++internal fun rememberCandidateStrokeTable(): CandidateStrokeTable? {
++    val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
++    val table by produceState<CandidateStrokeTable?>(null, context) {
++        value = withContext(Dispatchers.IO) { runCatching { CandidateStrokeTable.load(context) }.getOrNull() }
++    }
++    return table
++}
++
++/** N is an ambiguous left-falling dot/撇: show 点, but match either code. */
++internal fun classifyCandidateStroke(points: List<Offset>, density: Float = 1f): Char? {
++    if (points.size < 2) return null
++    val start = points.first(); val end = points.last()
++    val dx = end.x - start.x; val dy = end.y - start.y
++    var path = 0f
++    for (i in 1 until points.size) path += (points[i] - points[i - 1]).getDistance()
++    if (path < 4f * density) return null
++    val straight = (end - start).getDistance()
++    if (path > straight * 1.35f && path - straight > 6f * density) return 'z'
++    // A dot can be quite long or steep; a nearly straight vertical drag remains 竖.
++    // Left-falling dots may also be short 撇, so preserve both readings in the filter.
++    val minimumDotLean = if (path <= 32f * density) 0.15f else 0.25f
++    if (path <= 64f * density && dy > 0f && abs(dy) >= abs(dx) * 0.4f && abs(dx) >= abs(dy) * minimumDotLean)
++        return if (dx < 0f) 'N' else 'n'
++    if (abs(dx) > abs(dy) * 1.6f) return 'h'
++    if (abs(dy) > abs(dx) * 2.2f) return 's'
++    return if (dx < 0f) 'p' else 'n'
++}
++
++internal fun Modifier.candidateStrokeGesture(
++    enabled: Boolean,
++    onStroke: (Char) -> Unit,
++    onDrawing: (Boolean) -> Unit = {},
++    onInk: (Offset?) -> Unit = {},
++): Modifier = if (!enabled) this else composed {
++    val current = rememberUpdatedState(onStroke)
++    val drawing = rememberUpdatedState(onDrawing)
++    val ink = rememberUpdatedState(onInk)
++    var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
++    Modifier.onGloballyPositioned { coordinates = it }.pointerInput(Unit) {
++        val points = ArrayList<Offset>()
++        fun append(point: Offset) {
++            points.add(point)
++            coordinates?.takeIf { it.isAttached }?.localToRoot(point)?.let { ink.value(it) }
++        }
++        awaitEachGesture {
++            val down = awaitFirstDown(requireUnconsumed = false)
++            val start = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
++                ?: return@awaitEachGesture
++            drawing.value(true)
++            points.clear(); ink.value(null)
++            append(down.position)
++            append(start.position)
++            try {
++                val finished = drag(start.id) { change ->
++                    change.historical.forEach { append(it.position) }
++                    append(change.position)
++                    change.consume()
++                }
++                if (finished) classifyCandidateStroke(points, density)?.let { current.value(it) }
++            } finally {
++                drawing.value(false); points.clear(); ink.value(null)
++            }
++        }
++    }
++}
++
++internal fun candidateStrokeLabel(code: String): String = code.map {
++    when (it) { 'h' -> '一'; 's' -> '丨'; 'p' -> '丿'; 'n', 'N' -> '丶'; else -> '乛' }
++}.joinToString("")
++
++/**
++ * 候选栏未展开时从空格起笔触发笔画筛选的控制器。
++ * [canTrigger] 在滑动瞬间按需读取候选态，避免把候选更新扩散到整块键盘重组。
++ */
++internal class SpaceStrokeController(
++    val canTrigger: () -> Boolean,
++    val onDrawingChanged: (Boolean) -> Unit,
++    val onInkPoint: (Offset?) -> Unit,
++    val onStrokeTriggered: (Char) -> Unit,
++)
++
++internal val LocalSpaceStrokeController = staticCompositionLocalOf<SpaceStrokeController?> { null }
++
++internal val LocalStrokeFilterBackspace = staticCompositionLocalOf<(() -> Boolean)?> { null }
++
++internal val LocalStrokeDeleteRelease = staticCompositionLocalOf<(() -> Unit)?> { null }
+diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt
+--- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt	2026-11-24 01:14:23.516221930 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt	2026-11-24 01:14:23.520221930 +0000
+@@ -93,6 +93,7 @@
+ import androidx.compose.ui.unit.sp
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.kingzcheung.xime.handwriting.HandwritingCandidate
++import com.kingzcheung.xime.handwriting.renderStrokes
+ import com.kingzcheung.xime.keyboard.textMainType
+ import com.kingzcheung.xime.keyboard.underlyingPage
+ import com.kingzcheung.xime.keyboard.KeyboardPage
+@@ -673,7 +674,19 @@
+         }
+         // 候选栏上面那一截的高度（翻译栏、工具面板、剪贴板搜索、拼音编辑条）；菜单等面板据此让开工具栏，见 belowCandidateBar。
+         val aboveCandidateBarPx = remember { mutableIntStateOf(0) }
+-        Box(modifier = Modifier.fillMaxSize().then(contentModifier).inlineQuickActionGestures(inlineEditor).onSizeChanged { size ->
++        val candidateStrokeInk = remember { androidx.compose.runtime.mutableStateListOf<com.kingzcheung.xime.handwriting.StrokePoint>() }
++        var candidateStrokeRoot by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
++        val candidateStrokeInkColor = com.kingzcheung.xime.handwriting.rememberHandwritingInk(keyboardBgColor)
++        fun updateCandidateStrokeInk(point: androidx.compose.ui.geometry.Offset?) {
++            if (point == null) candidateStrokeInk.clear()
++            else (point - candidateStrokeRoot).let { candidateStrokeInk.add(com.kingzcheung.xime.handwriting.StrokePoint(it.x, it.y)) }
++        }
++        Box(modifier = Modifier.fillMaxSize().then(contentModifier).inlineQuickActionGestures(inlineEditor)
++            .onGloballyPositioned { candidateStrokeRoot = it.localToRoot(androidx.compose.ui.geometry.Offset.Zero) }
++            .drawWithContent {
++                drawContent()
++                renderStrokes(emptyList(), candidateStrokeInk, candidateStrokeInkColor, transparentPaper = true)
++            }.onSizeChanged { size ->
+             if (!barScaleFrozen && size.width > 0 && size.height > 0) {
+                 candidateBarScaleState.floatValue = candidateBarScale(size.width / resizeControlDensity.density,
+                     size.height / resizeControlDensity.density - renderedBottomPaddingDp)
+@@ -697,6 +710,45 @@
+         var preeditEditSession by remember(state.inputSessionId, state.currentSchemaId, state.isAsciiMode) {
+             mutableStateOf<com.kingzcheung.xime.rime.PinyinEditSession?>(null)
+         }
++        val strokeTable = rememberCandidateStrokeTable()
++        var strokeCode by remember { mutableStateOf("") }
++        var strokeWindow by remember { mutableStateOf(false) }
++        var strokeDrawing by remember { mutableStateOf(false) }
++        var strokeDragActive by remember { mutableStateOf(false) }
++        var strokeDeleteTouchLocked by remember { mutableStateOf(false) }
++        var strokeRevision by remember { mutableIntStateOf(0) }
++        fun clearCandidateStroke() { strokeCode = ""; strokeWindow = false }
++        fun popCandidateStroke(): Boolean {
++            if (strokeDeleteTouchLocked) return true
++            if (strokeCode.isEmpty()) return false
++            strokeCode = strokeCode.dropLast(1)
++            if (strokeCode.isEmpty()) {
++                strokeWindow = false
++                strokeDeleteTouchLocked = true
++            }
++            return true
++        }
++        fun addCandidateStroke(code: Char) {
++            if (strokeTable == null) return
++            strokeCode += code
++            strokeWindow = true
++            strokeRevision++
++        }
++        LaunchedEffect(strokeRevision, strokeDrawing) {
++            if (strokeWindow && !strokeDrawing) { kotlinx.coroutines.delay(1000); strokeWindow = false }
++        }
++        var wasCandidateExpanded by remember { mutableStateOf(candidatePageExpanded) }
++        LaunchedEffect(candidatePageExpanded) {
++            if (wasCandidateExpanded && !candidatePageExpanded) { strokeCode = ""; strokeWindow = false }
++            wasCandidateExpanded = candidatePageExpanded
++        }
++        LaunchedEffect(state.inputSessionId, state.currentSchemaId) {
++            strokeCode = ""; strokeWindow = false
++        }
++        LaunchedEffect(state.inputSessionId) {
++            snapshotFlow { candidateState.value.inputText to candidateState.value.associationCandidates }
++                .drop(1).collect { if (!strokeDragActive) { strokeCode = ""; strokeWindow = false } }
++        }
+         var sentenceEdit by remember(state.inputSessionId, state.currentSchemaId, state.isAsciiMode) {
+             mutableStateOf<com.kingzcheung.xime.service.SentenceEditSession?>(null)
+         }
+@@ -740,6 +792,7 @@
+         var sentenceWord by remember { mutableStateOf("") }
+         var sentenceWordCode by remember { mutableStateOf("") }
+         var sentenceConfirmed by remember { mutableStateOf(emptyList<com.kingzcheung.xime.rime.RimeEngine.SentenceEditCandidate>()) }
++        LaunchedEffect(sentenceEdit, sentenceCode) { clearCandidateStroke() }
+         var sentenceWords by remember { mutableStateOf(emptyList<com.kingzcheung.xime.rime.RimeEngine.SentenceEditCandidate>()) }
+         var sentenceWordsCode by remember { mutableStateOf<String?>(null) }
+         var sentenceWordsSelection by remember { mutableStateOf(emptyList<com.kingzcheung.xime.rime.PinyinSyllableOption>()) }
+@@ -780,6 +833,7 @@
+         }
+         fun closeSentenceEdit() {
+             sentenceEdit?.let { callbacks.onEndSentencePreview?.invoke(it) }
++            clearCandidateStroke()
+             sentenceEdit = null
+             callbacks.onSentenceHorizontalDelete = null
+             sentenceWords = emptyList()
+@@ -819,6 +873,7 @@
+         fun selectSentenceCandidate(candidate: com.kingzcheung.xime.rime.RimeEngine.SentenceEditCandidate, commit: Boolean = false) {
+             val owner = sentenceEdit ?: return
+             if (sentenceApplying || candidate.code.isEmpty() || !sentenceCode.startsWith(candidate.code)) return
++            clearCandidateStroke()
+             val segments = sentenceConfirmed + candidate
+             val remaining = sentenceCode.drop(candidate.code.length).trimStart('\'')
+             if (remaining.isEmpty()) {
+@@ -894,9 +949,60 @@
+                 }
+             }
+         }
++        fun commitFirstStrokeCandidate(): Boolean {
++            val table = strokeTable ?: return false
++            if (strokeCode.isEmpty()) return false
++            val cs = candidateState.value
++
++            if (sentenceEdit != null) {
++                clearCandidateStroke()
++                applySentenceEdit(true)
++                return true
++            }
++
++            val expandedDataMode = (candidatePageExpanded || candidateStripExtended) && cs.expandedCandidatesLoaded
++            if (expandedDataMode && !cs.showsCalculator) {
++                val isSingleChar = viewModel.singleCharFilter.value
++                val matched = cs.expandedCandidates.withIndex().firstOrNull { (_, c) ->
++                    (!isSingleChar || c.text.isSingleCharacter()) && table.matches(c.text, strokeCode)
++                }
++                if (matched != null) {
++                    clearCandidateStroke()
++                    closePreeditEditor()
++                    if (candidatePageExpanded) viewModel.setCandidatePageExpanded(false)
++                    callbacks.onGlobalCandidateSelect?.invoke(matched.index)
++                        ?: callbacks.onCandidateSelect.invoke(matched.index)
++                    return true
++                }
++            } else if (cs.candidates.isNotEmpty()) {
++                val matchedIndex = cs.candidates.indices.firstOrNull { i ->
++                    table.matches(cs.candidates[i], strokeCode)
++                }
++                if (matchedIndex != null) {
++                    clearCandidateStroke()
++                    closePreeditEditor()
++                    if (candidatePageExpanded) viewModel.setCandidatePageExpanded(false)
++                    callbacks.onCandidateSelect.invoke(matchedIndex)
++                    return true
++                }
++            } else if (cs.associationCandidates.isNotEmpty()) {
++                val matchedAssocIndex = cs.associationCandidates.indices.firstOrNull { i ->
++                    table.matches(cs.associationCandidates[i], strokeCode)
++                }
++                if (matchedAssocIndex != null) {
++                    clearCandidateStroke()
++                    closePreeditEditor()
++                    if (candidatePageExpanded) viewModel.setCandidatePageExpanded(false)
++                    callbacks.onAssociationSelect?.invoke(matchedAssocIndex)
++                    return true
++                }
++            }
++            // 笔画筛选激活但当前无候选匹配：吞掉空格，防止意外上屏筛选前的默认第 0 候选
++            return true
++        }
+         SideEffect {
+             callbacks.onSentenceHorizontalDelete = if (sentenceEdit != null) ({
+-                if (sentenceEdit != null) callbacks.onPreeditKeyInput?.invoke("clear_all")
++                if (sentenceEdit != null) callbacks.onPreeditKeyInput?.invoke("clear_composition")
+             }) else null
+             callbacks.onPreeditCursorMove = { key ->
+                 when {
+@@ -989,6 +1095,17 @@
+                         state.inputProfile.layout == com.kingzcheung.xime.settings.InputLayout.MERGED14 && !state.isAsciiMode)) {
+                     editPreedit(key = key); true
+                 } else { closePreeditEditor(); false }
++            }) else if (strokeCode.isNotEmpty() && strokeTable != null) ({ key ->
++                when (key) {
++                    "space", " " -> { commitFirstStrokeCandidate(); true }
++                    "delete" -> popCandidateStroke()
++                    "clear_all", "clear_composition" -> {
++                        clearCandidateStroke()
++                        strokeDeleteTouchLocked = true
++                        true
++                    }
++                    else -> false
++                }
+             }) else null
+         }
+         DisposableEffect(callbacks) {
+@@ -1390,10 +1507,10 @@
+             drawPreeditEditor?.invoke()
+ 
+             // 候选栏与展开页共用：展开页从同一版本中实际显示的候选之后接着排。
+-            var visibleBarAssociations by remember(singleCharFilter) { mutableStateOf(emptyList<String>()) }
+-            var visibleBarCandidates by remember(singleCharFilter) { mutableStateOf(emptyList<String>()) }
+-            var visibleBarCandidateRevision by remember(singleCharFilter) { mutableLongStateOf(Long.MIN_VALUE) }
+-            var visibleBarUsesExpanded by remember(singleCharFilter) { mutableStateOf(false) }
++            var visibleBarAssociations by remember(singleCharFilter, strokeCode) { mutableStateOf(emptyList<String>()) }
++            var visibleBarCandidates by remember(singleCharFilter, strokeCode) { mutableStateOf(emptyList<String>()) }
++            var visibleBarCandidateRevision by remember(singleCharFilter, strokeCode) { mutableLongStateOf(Long.MIN_VALUE) }
++            var visibleBarUsesExpanded by remember(singleCharFilter, strokeCode) { mutableStateOf(false) }
+             LaunchedEffect(Unit) {
+                 snapshotFlow { candidateState.value.inputText }.drop(1).collect {
+                     visibleBarAssociations = emptyList()
+@@ -1413,6 +1530,14 @@
+                 candidateState.value.expandedCandidatesLoaded
+ 
+             val cs = candidateState.value
++            val strokeActive = strokeCode.isNotEmpty() && strokeTable != null
++            val sentenceWordIndices = sentenceWords.indices.filter {
++                !strokeActive || strokeTable!!.matches(sentenceWords[it].text, strokeCode)
++            }
++            val associationIndices = cs.associationCandidates.indices.filter {
++                !strokeActive || strokeTable!!.matches(cs.associationCandidates[it], strokeCode)
++            }
++            val visibleAssociations = associationIndices.map { cs.associationCandidates[it] }
+             val liveGlide = glideRimePreview.value
+             val englishGlide = glideEnglishPreview.value
+             androidx.compose.runtime.SideEffect { com.kingzcheung.xime.service.KeyLatencyProbe.composed() }
+@@ -1422,13 +1547,16 @@
+             val railExpanded = if (expandedDataMode) {
+                 if (singleCharFilter) {
+                     cs.expandedCandidates.withIndex()
+-                        .mapNotNull { (i, c) -> if (c.text.isSingleCharacter()) i to c else null }
++                        .mapNotNull { (i, c) -> if (c.text.isSingleCharacter() && (!strokeActive || strokeTable!!.matches(c.text, strokeCode))) i to c else null }
+                 } else {
+-                    cs.expandedCandidates.withIndex().map { it.index to it.value }
++                    cs.expandedCandidates.withIndex().filter { !strokeActive || strokeTable!!.matches(it.value.text, strokeCode) }.map { it.index to it.value }
+                 }
+             } else {
+                 emptyList()
+             }
++            val barIndices = if (!expandedDataMode || cs.showsCalculator) {
++                cs.candidates.indices.filter { !strokeActive || strokeTable!!.matches(cs.candidates[it], strokeCode) }
++            } else emptyList()
+             // 释义模式只换显示用注释；点选仍按索引回到原候选数据（九键靠其中的拼音定位）。
+             val glossRevision = CandidateGlossary.revision
+             val glossChinese = !state.isAsciiMode && state.inputProfile.language == InputLanguage.CHINESE
+@@ -1438,19 +1566,20 @@
+                 CandidateGlossary.swapHeld(shiftModeNow == com.kingzcheung.xime.viewmodel.ShiftMode.HELD)
+             val candidateBarState = remember(
+                 cs.candidates, cs.candidateComments, cs.inputText, cs.preeditText, cs.isComposing,
+-                cs.associationCandidates, cs.pendingEnglishText, cs.isShowingRecentClipboard, cs.hasNextPage,
++                cs.associationCandidates, cs.pendingEnglishText, cs.englishFirstCompletionPending, cs.isShowingRecentClipboard, cs.hasNextPage,
+                 cs.calculatorCandidates, handwritingCandidates, handwritingComments, showHandwritingCandidates,
+                 railExpanded, expandedDataMode, isHandwritingPage, cs.smsVerificationCode, cs.clipboardImage, cs.clipboardExtractedCount,
+                 cs.candidateFocus, cs.engineRevision, cs.candidateActions, state.inputProfile,
+                 hardwareCandidateHighlight, glossRevision, glossChinese, glossSwap,
+                 liveGlide, englishGlide, sentenceEdit, sentenceCode, sentenceWord, sentenceWords, sentenceConfirmed,
++                strokeActive, strokeCode, visibleAssociations, sentenceWordIndices,
+             ) {
+                 if (sentenceEdit != null) {
+                     val owner = sentenceEdit!!
+                     CandidateBarState.ChineseCandidates(
+-                        candidates = listOf(owner.sentence(sentenceReplacement(owner))) + sentenceWords.map { it.text },
++                        candidates = listOf(owner.sentence(sentenceReplacement(owner))) + sentenceWordIndices.map { sentenceWords[it].text },
+                         comments = emptyList(), inputText = sentenceCode, preeditText = sentenceCode,
+-                        hasMore = sentenceWords.isNotEmpty(),
++                        hasMore = sentenceWordIndices.isNotEmpty(),
+                     )
+                 } else if (showHandwritingCandidates) {
+                     CandidateBarState.AssociationOnly(
+@@ -1475,18 +1604,27 @@
+                         inputText = liveGlide.inputText, preeditText = liveGlide.preeditText,
+                         hasMore = liveGlide.hasNextPage,
+                     )
++                } else if (cs.englishFirstCompletionPending && cs.pendingEnglishText.isNotEmpty() &&
++                    (state.isAsciiMode || state.inputProfile.typesLettersDirectly)) {
++                    CandidateBarState.Idle
+                 } else {
+                     // 计算器结果只看候选状态自己带的标记（GitHub #289），不受展开页数据影响。
+                     val calculator = cs.showsCalculator
+                     val expandedBar = expandedDataMode && !calculator
+-                    val barTexts = if (expandedBar) railExpanded.map { it.second.text } else cs.candidates
+-                    val barComments = if (expandedBar) railExpanded.map { it.second.comment } else cs.candidateComments
++                    val barTexts = if (expandedBar) railExpanded.map { it.second.text }
++                        else if (strokeActive) barIndices.map { cs.candidates[it] }
++                        else cs.candidates
++                    val barComments = if (expandedBar) railExpanded.map { it.second.comment }
++                        else if (strokeActive) barIndices.map { cs.candidateComments.getOrElse(it) { "" } }
++                        else cs.candidateComments
+                     val (shownTexts, shownComments) = when {
+                         glossSwap -> CandidateGlossary.swapped(barTexts, barComments)
+                         glossChinese -> barTexts to CandidateGlossary.annotate(barTexts, barComments)
+                         else -> barTexts to barComments
+                     }
+-                    CandidateBarState.from(
++                    if (strokeActive && !cs.isComposing && cs.associationCandidates.isNotEmpty() && visibleAssociations.isEmpty())
++                        CandidateBarState.AssociationOnly(candidates = emptyList())
++                    else CandidateBarState.from(
+                         candidates = shownTexts,
+                         candidateComments = shownComments,
+                         inputText = cs.inputText,
+@@ -1560,7 +1698,10 @@
+                 LocalCorrectionFullScheme provides correctionScheme.takeIf { !doublePinyinKeysShown }) {
+             ScaledCandidateBar(candidateBarScaleState.floatValue) {
+             CandidateBar(
+-                modifier = Modifier.then(if (holdingBar) Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
++                modifier = Modifier.candidateStrokeGesture(candidatePageExpanded && !state.isAsciiMode &&
++                    !showHandwritingCandidates && strokeTable != null, ::addCandidateStroke,
++                        { strokeDrawing = it }, ::updateCandidateStrokeInk)
++                    .then(if (holdingBar) Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
+                     awaitPointerEventScope {
+                         while (true) {
+                             awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+@@ -1579,6 +1720,7 @@
+                 isGlidePreview = liveGlide != null || englishGlide != null,
+                 page = barPage,
+                 candidatePageExpanded = candidatePageExpanded,
++                strokeFilterLabel = if (strokeActive) candidateStrokeLabel(strokeCode) else "",
+                 commentsAreGlosses = glossChinese && CandidateGlossary.isLoaded,
+                 showNumberLabels = hardwareKeyboardConnected && !state.isAsciiMode && cs.pendingEnglishText.isEmpty() &&
+                     !showHandwritingCandidates && !expandedDataMode,
+@@ -1607,6 +1749,7 @@
+                     onVisibleAssociationsChanged = { visibleBarAssociations = it },
+                     onReorderToolbar = if (inlineEditor.active) null else callbacks.onUpdateToolbarButtons,
+                     onCancelInput = {
++                        if (strokeActive) { clearCandidateStroke(); return@CandidateBarCallbacks }
+                         if (sentenceEdit != null) {
+                             closeSentenceEdit()
+                             viewModel.setCandidatePageExpanded(false)
+@@ -1651,9 +1794,14 @@
+                             // 位置索引经 railExpanded 换算全局索引再走全局链路
+                             val globalIndex = railExpanded.getOrNull(index)?.first
+                             if (globalIndex != null) {
+-                                callbacks.onGlobalCandidateSelect?.invoke(globalIndex)
++                                callbacks.onGlobalCandidateSelect?.let { clearCandidateStroke(); it(globalIndex) }
+                             }
++                        } else if (strokeActive) {
++                            val pageIndex = barIndices.getOrNull(index) ?: return@select
++                            clearCandidateStroke()
++                            callbacks.onCandidateSelect(pageIndex)
+                         } else {
++                            clearCandidateStroke()
+                             callbacks.onCandidateSelect(index)
+                         }
+                     },
+@@ -1675,21 +1823,23 @@
+                         // 手写候选：读手写列表（不是引擎列表），长按＝忘掉这个字从手写里学到的笔迹
+                         val handwritingWord = if (showHandwritingCandidates) handwritingCandidates.getOrNull(index) else null
+                         val railEntry = if (expandedDataMode && !showHandwritingCandidates) railExpanded.getOrNull(index) else null
++                        val pageIndex = if (strokeActive && railEntry == null) barIndices.getOrNull(index) else index
+                         val word = railEntry?.second?.text
+-                            ?: cs.candidates.getOrNull(index)
++                            ?: pageIndex?.let { cs.candidates.getOrNull(it) }
+                         if (showHandwritingCandidates) {
+                             if (!handwritingWord.isNullOrEmpty()) deletePending = DeletePendingWord(handwritingWord,
+                                 "忘掉「$handwritingWord」从手写里学到的笔迹？内置的写法和训练样本照常能认。") {
+                                 com.kingzcheung.xime.handwriting.HandwritingTemplates.forget(handwritingContext, handwritingWord)
+                             }
+                         } else if (!word.isNullOrEmpty()) {
+-                            val parts = sentenceParts(callbacks, cs, word, first = (railEntry?.first ?: index) == 0, state.inputProfile)
++                            val sourceIndex = railEntry?.first ?: pageIndex!!
++                            val parts = sentenceParts(callbacks, cs, word, first = sourceIndex == 0, state.inputProfile)
+                             deletePending = DeletePendingWord(word, pin = pinChoice(callbacks, cs, word), parts = parts) {
+                                 if (!callbacks.isCandidateSnapshotCurrent(cs)) return@DeletePendingWord
+                                 if (railEntry != null) {
+                                     callbacks.onGlobalCandidateDelete?.invoke(railEntry.first)
+                                 } else {
+-                                    callbacks.onCandidateDelete?.invoke(index)
++                                    callbacks.onCandidateDelete?.invoke(pageIndex!!)
+                                 }
+                             }
+                         }
+@@ -1780,7 +1930,8 @@
+                         if (showHandwritingCandidates && index in handwritingCandidates.indices) {
+                             selectHandwriting(index)
+                         } else {
+-                            callbacks.onAssociationSelect?.invoke(index)
++                            val sourceIndex = if (strokeActive) associationIndices.getOrNull(index) ?: return@select else index
++                            callbacks.onAssociationSelect?.let { clearCandidateStroke(); it(sourceIndex) }
+                             // 展开着点栏里的联想和点展开页里的一样：上屏后收起。
+                             if (candidatePageExpanded) viewModel.setCandidatePageExpanded(false)
+                         }
+@@ -1814,6 +1965,11 @@
+                 // 数据源为服务层的跨页全量候选（expandedCandidates），行分组惰性渲染
+                 // （LazyColumn 只画可见行），可上下滑动 + 翻页键滚动一屏，不驱动 rime 翻页。
+                 val allExpanded = candidateState.value.expandedCandidates
++                val strokeActive = strokeCode.isNotEmpty() && strokeTable != null
++                val associationIndices = cs.associationCandidates.indices.filter {
++                    !strokeActive || strokeTable!!.matches(cs.associationCandidates[it], strokeCode)
++                }
++                val visibleAssociations = associationIndices.map { cs.associationCandidates[it] }
+                 // 左栏符号复刻当前键盘左栏：九键/笔画各自的可自定义 side_symbols
+                 // （configVersion 参与重组，保证设置改动后刷新）；其余布局用默认快捷符号
+                 val configVersion by KeysConfigHelper.configVersion.collectAsStateWithLifecycle()
+@@ -1856,8 +2012,10 @@
+                 // 仅过滤并保留引擎索引；换行在候选区测得实际可用宽度后进行。
+                 val glossExpanded = !state.isAsciiMode && state.inputProfile.language == InputLanguage.CHINESE
+                 val expandedGlossRevision = CandidateGlossary.revision
+-                val currentEntries = remember(allExpanded, singleCharFilter, visibleBarCandidates, glossExpanded, expandedGlossRevision) {
+-                    ExpandedCandidatePager.filterIndices(allExpanded, singleCharFilter).map { gi ->
++                val currentEntries = remember(allExpanded, singleCharFilter, visibleBarCandidates, glossExpanded, expandedGlossRevision, strokeCode, strokeTable, strokeActive) {
++                    ExpandedCandidatePager.filterIndices(allExpanded, singleCharFilter).filter { gi ->
++                        !strokeActive || strokeTable!!.matches(allExpanded[gi].text, strokeCode)
++                    }.map { gi ->
+                         val comment = allExpanded[gi].comment
+                         CandidateEntry(allExpanded[gi].text,
+                             if (glossExpanded) CandidateGlossary.annotate(allExpanded[gi].text, comment) else comment, gi)
+@@ -1866,7 +2024,7 @@
+                         remainingCandidates(entries, visibleBarCandidates)
+                     }
+                 }
+-                var lastExpandedFrame by remember(candidatePageOpening, state.inputSessionId, singleCharFilter) {
++                var lastExpandedFrame by remember(candidatePageOpening, state.inputSessionId, singleCharFilter, strokeCode) {
+                     mutableStateOf(0L to emptyList<CandidateEntry>())
+                 }
+                 val expandedReady = cs.expandedCandidatesLoaded && visibleBarUsesExpanded &&
+@@ -1896,24 +2054,31 @@
+                 val barAssociationCount = visibleBarAssociations.size
+                 // 栏里的联想序号：英文打字时第一个是已打的原词（[associationWordAt] 同一规矩），展开页接着往下排。
+                 val barAssociationWords = if (cs.showsTypedEnglishWord)
+-                    listOf(cs.pendingEnglishText) + cs.associationCandidates else cs.associationCandidates
++                    listOf(cs.pendingEnglishText) + visibleAssociations else visibleAssociations
+                 CandidatePage(
+                     state = CandidatePageState(
+-                        candidates = sentenceEdit?.let { sentenceWords.mapIndexed { index, word -> CandidateEntry(word.text, globalIndex = index) } }
+-                            ?: expandedEntries,
++                        candidates = sentenceEdit?.let {
++                            sentenceWords.mapIndexedNotNull { index, word ->
++                                if (!strokeActive || strokeTable!!.matches(word.text, strokeCode)) CandidateEntry(word.text, globalIndex = index) else null
++                            }
++                        } ?: expandedEntries,
+                         engineRevision = displayedExpandedRevision,
+                         associationCandidates = if (sentenceEdit != null) emptyList() else barAssociationWords.drop(barAssociationCount),
++                        strokeInputActive = strokeWindow && !state.isAsciiMode,
++                        onStroke = ::addCandidateStroke,
++                        onStrokeDrawing = { strokeDrawing = it },
++                        onStrokeInk = ::updateCandidateStrokeInk,
+                         backgroundColor = keyboardBgColor,
+                         textColor = candidateTextColor,
+-                        keyBackgroundColor = keyBgColor,
+-                        bottomPaddingDp = renderedBottomPaddingDp,
++                        keyBackgroundColor = neutralInputBgColor,
++                        bottomPaddingDp = 0,
+                         singleCharFilter = singleCharFilter,
+                         railSymbols = if (sentenceEdit != null || canChooseSyllable && merged14) emptyList() else customRailSymbols?.takeIf { it.isNotEmpty() },
+                         railPinyinOptions = if (sentenceEdit != null) sentenceOptions.map { it.pinyin } else railPinyinOptions,
+                         railPinyinNear = railPinyinNear,
+                         choosingMergedLetter = syllableChoices?.letterGroup != null,
+                         railSelectedPinyinIndex = if (sentenceEdit != null) sentenceOptions.indexOfFirst { it.selected } else railSelectedPinyinIndex,
+-                        railAccentColor = accentColor,
++                        railAccentColor = candidateAccentColor,
+                         enterKeyText = state.enterKeyText,
+                         matchT9Geometry = isT9Layout,
+                         qwertyGeometry = candidateQwerty,
+@@ -1937,7 +2102,7 @@
+                             if (!expandedReady || !candidateState.value.expandedCandidatesLoaded) return@CandidatePageCallbacks
+                             if (!callbacks.isCandidateSnapshotCurrent(cs)) return@CandidatePageCallbacks
+                             // entry.globalIndex 即跨页全局索引（引擎侧 select_candidate）
+-                            callbacks.onGlobalCandidateSelect?.invoke(entry.globalIndex)
++                            callbacks.onGlobalCandidateSelect?.let { clearCandidateStroke(); it(entry.globalIndex) }
+                         },
+                         onCandidateLongPress = { entry ->
+                             if (sentenceEdit != null) return@CandidatePageCallbacks
+@@ -1960,12 +2125,18 @@
+                             if (viewModel.singleCharFilter.value) callbacks.onSingleCharFilterOn?.invoke()
+                         }.takeIf { sentenceEdit == null && (cs.isComposing || cs.candidates.isNotEmpty()) },
+                         onAssociationSelect = select@{ index ->
+-                            val sourceIndex = index + barAssociationCount
+-                            val word = barAssociationWords.getOrNull(sourceIndex) ?: return@select
++                            val rawIndex = index + barAssociationCount
++                            val englishPrefix = if (cs.pendingEnglishText.isNotEmpty() && cs.englishReplaceSupported) 1 else 0
++                            val sourceIndex = if (strokeActive && rawIndex >= englishPrefix) {
++                                (associationIndices.getOrNull(rawIndex - englishPrefix) ?: return@select) + englishPrefix
++                            } else {
++                                rawIndex
++                            }
++                            val word = barAssociationWords.getOrNull(rawIndex) ?: return@select
+                             val current = candidateState.value
+                             if (cs.pendingEnglishText != current.pendingEnglishText ||
+                                 com.kingzcheung.xime.service.associationWordAt(current, sourceIndex) != word) return@select
+-                            callbacks.onAssociationSelect?.invoke(sourceIndex)
++                            callbacks.onAssociationSelect?.let { clearCandidateStroke(); it(sourceIndex) }
+                             viewModel.setCandidatePageExpanded(false)
+                         },
+                         onRailPinyinSelect = { index ->
+@@ -1974,6 +2145,7 @@
+                                 val owner = sentenceEdit
+                                 val option = sentenceOptions.getOrNull(index).takeIf { sentenceWordsCode == sentenceCode }
+                                 if (owner != null && option != null) {
++                                    clearCandidateStroke()
+                                     sentenceSelected = sentenceSelected.takeWhile { it.end <= option.start } + option
+                                     refreshSentenceWords(owner)
+                                 }
+@@ -2004,7 +2176,10 @@
+                             }
+                         },
+                         onDelete = {
+-                            if (isT9Layout) {
++                            if (strokeCode.isNotEmpty()) {
++                                strokeCode = strokeCode.dropLast(1)
++                                if (strokeCode.isEmpty()) strokeWindow = false
++                            } else if (isT9Layout) {
+                                 // 与九键键盘本体退格键（T9KeyboardLayout.handleDelete）
+                                 // 完全同路径：T9 撤销模型（删未分配数字/撤销左栏选择/
+                                 // 撤销上屏），buffer→rime 经 FlushRimeInput 同步；
+@@ -2035,6 +2210,7 @@
+                                 }
+                             }
+                         },
++                        onClearStrokeFilter = if (strokeCode.isNotEmpty()) ::clearCandidateStroke else null,
+                         onClear = { callbacks.onKeyPress("clear_all", false) },
+                         onEnter = {
+                             callbacks.onKeyPress("enter", false)
+@@ -2048,7 +2224,62 @@
+                     onHapticFeedback = onHapticFeedback,
+                     modifier = panelMaterial.fillMaxSize()
+                 )
++                }
++            }
++            val spaceStrokeController = remember(candidatePageExpanded, state.isAsciiMode, showHandwritingCandidates, strokeTable, state.inputSessionId, state.currentSchemaId) {
++                SpaceStrokeController(
++                    canTrigger = {
++                        !candidatePageExpanded && !state.isAsciiMode && !showHandwritingCandidates && strokeTable != null &&
++                            candidateState.value.let { cs ->
++                                cs.isComposing || cs.candidates.isNotEmpty() || cs.associationCandidates.isNotEmpty()
++                            }
++                    },
++                    onDrawingChanged = { strokeDrawing = it },
++                    onInkPoint = ::updateCandidateStrokeInk,
++                    onStrokeTriggered = { ch ->
++                        addCandidateStroke(ch)
++                        if (!candidatePageExpanded && sentenceEdit == null && candidateState.value.candidates.isNotEmpty()) {
++                            callbacks.onExtendCandidateStrip?.invoke()
++                        }
++                    },
++                )
++            }
++            val parentDeleteDrag = LocalDeleteDrag.current
++            val underlayDeleteDrag: (() -> DeleteDragSession)? = remember(parentDeleteDrag, state.inputSessionId, state.currentSchemaId) {
++                parentDeleteDrag?.let { upstreamFactory ->
++                    {
++                        val initialStrokes = strokeCode
++                        if (initialStrokes.isEmpty() && !strokeDeleteTouchLocked) {
++                            upstreamFactory()
++                        } else {
++                            // 只要起手时存在笔画（或本轮删除已锁定），整次滑动只能删/清笔画，抬手并重新按下前绝不删编码。
++                            strokeDragActive = true
++                            var forwardDir = false
++                            DeleteDragSession(
++                                move = { signed ->
++                                    if (signed < 0) forwardDir = true
++                                    if (!forwardDir && initialStrokes.isNotEmpty()) {
++                                        val count = kotlin.math.abs(signed)
++                                        val nextStrokes = initialStrokes.dropLast(count.coerceAtMost(initialStrokes.length))
++                                        strokeCode = nextStrokes
++                                        strokeWindow = nextStrokes.isNotEmpty()
++                                    }
++                                },
++                                finish = {
++                                    strokeDragActive = false
++                                    strokeDeleteTouchLocked = false
++                                },
++                            )
++                        }
++                    }
++                }
+             }
++            androidx.compose.runtime.CompositionLocalProvider(
++                LocalSpaceStrokeController provides spaceStrokeController,
++                LocalStrokeFilterBackspace provides ::popCandidateStroke,
++                LocalStrokeDeleteRelease provides { strokeDeleteTouchLocked = false },
++                LocalDeleteDrag provides underlayDeleteDrag,
++            ) {
+             Box(Modifier.weight(1f).fillMaxWidth().testTag("keyboard-underlay")) {
+             val clipboardPanel = LocalClipboardPanelExpansion.current
+             val stableUnderlayState = if (clipboardPanel != null) {
+@@ -2187,6 +2418,20 @@
+                             is KeyboardLayoutState.T9Pinyin -> t9OnKeyPress
+                             is KeyboardLayoutState.Symbol -> symbolOnKeyPress
+                         }
++                        val handleKeyboardKeyPress: (String) -> Unit = { key ->
++                            when {
++                                key == "delete" && popCandidateStroke() -> Unit
++                                (key == "clear_composition" || key == "clear_all") && strokeCode.isNotEmpty() -> {
++                                    clearCandidateStroke()
++                                    strokeDeleteTouchLocked = true
++                                }
++                                (key == "clear_composition" || key == "clear_all") && strokeDeleteTouchLocked -> Unit
++                                (key == "space" || key == " ") && strokeCode.isNotEmpty() && strokeTable != null -> {
++                                    commitFirstStrokeCandidate()
++                                }
++                                else -> currentOnKeyPress(key)
++                            }
++                        }
+                         CompositionLocalProvider(
+                             LocalSuppressCursorMove provides suppressCursorMove,
+                             // 符号页收起时主键盘从「返回」那个位置扩开（键缝动效的切换扩散，用户 11-22）。
+diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt
+--- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt	2026-11-24 01:14:23.520221930 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt	2026-11-24 01:14:23.524221930 +0000
+@@ -197,9 +197,12 @@
+         flashAlpha.animateTo(0f, tween(fadeLeft.coerceIn(1L, SpaceLanguageFlash.FADE_MS).toInt(), easing = LinearEasing))
+     }
+     val flashVisible by remember { derivedStateOf { flashAlpha.value > 0f } }
++    val spaceStroke by rememberUpdatedState(LocalSpaceStrokeController.current)
++    var spaceCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+     BoxWithConstraints(
+         modifier.fillMaxSize().testTag("space-key")
+             .onGloballyPositioned {
++                spaceCoords = it
+                 it.positionInRoot().let { p -> spaceOrigin[0] = p.x; spaceOrigin[1] = p.y }
+                 spaceBounds = it.boundsInRoot()
+             }
+@@ -207,6 +210,15 @@
+                 settings.voiceSwipeCancel) {
+                 val step = settings.cursorStepDp * cursorUnitPx
+                 val tapTolerance = maxOf(viewConfiguration.touchSlop, 24.dp.toPx())
++                val verticalStrokeSlop = maxOf(viewConfiguration.touchSlop, 8.dp.toPx())
++                val horizontalStrokeSlop = maxOf(viewConfiguration.touchSlop * 2f, 16.dp.toPx())
++                val strokePoints = ArrayList<Offset>()
++                fun appendStrokePoint(point: Offset) {
++                    strokePoints.add(point)
++                    spaceCoords?.takeIf { it.isAttached }?.localToRoot(point)?.let { rootPt ->
++                        spaceStroke?.onInkPoint?.invoke(rootPt)
++                    }
++                }
+                 awaitEachGesture {
+                     val down = awaitFirstDown()
+                     down.consume()
+@@ -220,6 +232,7 @@
+                     val swipeUp = currentSwipeUp?.takeIf { !endsLock && !guarded }
+                     var held = false
+                     var movedBeforeHold = false
++                    var drawingStroke = false
+                     // 按住说话（用户 10-30：长按开了语音松手不停，和点麦克风是两回事）：这次长按开的语音，松手就结束并上屏。
+                     var startedVoice = false
+                     var lastX = down.position.x
+@@ -301,12 +314,37 @@
+                                     if (armed) view.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                                 }
+                             }
+-                            // 拇指点空格常带几毫米横移：在约 4 mm 内仍算一次点击（三星、Gboard 偏移 3.6 mm 仍上屏），
+-                            // 超出才算滑动。系统 touchSlop 只有约 8 dp，曾让 2.4 mm 的偏移把空格吞掉（1.12.36 实测）。
+-                            if (!held && (abs(change.position.x - down.position.x) > tapTolerance ||
+-                                abs(change.position.y - down.position.y) > tapTolerance)) {
++                            // 拇指点空格常带几毫米横移：在约 4 mm 内仍算一次点击（三星、Gboard 偏移 3.6 mm 仍上屏）；
++                            // 有候选可做笔画筛选时，滑动超过 touchSlop 即停掉长按计时，达到纵向 8dp / 横向 16dp 即进入画笔模式，
++                            // 避免较矮的空格条或稍微慢一点的起笔被点击容差或 0.2s 长按吞掉。
++                            val canStroke = swipeUp == null && spaceStroke?.canTrigger?.invoke() == true
++                            val offsetX = abs(change.position.x - down.position.x)
++                            val offsetY = abs(change.position.y - down.position.y)
++                            if (!held && canStroke && (offsetX > viewConfiguration.touchSlop || offsetY > viewConfiguration.touchSlop)) {
++                                timer.cancel()
++                            }
++                            val movedEnough = if (canStroke) {
++                                offsetY > verticalStrokeSlop || offsetX > horizontalStrokeSlop
++                            } else {
++                                offsetX > tapTolerance || offsetY > tapTolerance
++                            }
++                            if (!held && !movedBeforeHold && movedEnough) {
+                                 movedBeforeHold = true
+                                 timer.cancel()
++                                // 候选栏未展开且存在候选词或组词态时，从空格滑动起笔触发笔画筛选。
++                                if (canStroke) {
++                                    drawingStroke = true
++                                    pressed = false
++                                    strokePoints.clear()
++                                    spaceStroke?.onDrawingChanged?.invoke(true)
++                                    spaceStroke?.onInkPoint?.invoke(null)
++                                    appendStrokePoint(down.position)
++                                    change.historical.forEach { appendStrokePoint(it.position) }
++                                    appendStrokePoint(change.position)
++                                }
++                            } else if (drawingStroke) {
++                                change.historical.forEach { appendStrokePoint(it.position) }
++                                appendStrokePoint(change.position)
+                             }
+                             if (cursorActive) {
+                                 cursorSteps.stepPx = lineCursorStepPx(view.rootView.width / 2f, settings.cursorSwipeLines,
+@@ -327,6 +365,13 @@
+                                 } else if (swipeUp != null && swipeUpArmed && !held) {
+                                     gapLightTrigger.tap()
+                                     swipeUp()
++                                } else if (drawingStroke) {
++                                    val ch = classifyCandidateStroke(strokePoints, density.density)
++                                    spaceStroke?.onInkPoint?.invoke(null)
++                                    spaceStroke?.onDrawingChanged?.invoke(false)
++                                    drawingStroke = false
++                                    strokePoints.clear()
++                                    if (ch != null) spaceStroke?.onStrokeTriggered?.invoke(ch)
+                                 } else if (!held && !movedBeforeHold && !guarded) {
+                                     gapLightTrigger.tap()
+                                     currentClick()
+@@ -335,6 +380,12 @@
+                             }
+                         }
+                     } finally {
++                        if (drawingStroke) {
++                            spaceStroke?.onInkPoint?.invoke(null)
++                            spaceStroke?.onDrawingChanged?.invoke(false)
++                            drawingStroke = false
++                            strokePoints.clear()
++                        }
+                         if (cursorActive) {
+                             SpaceAfterCursorGuard.mark(android.os.SystemClock.uptimeMillis())
+                             SpaceCursorShift.end()

@@ -1,0 +1,489 @@
+name: CyIME eta build (coexist + fuzzylock + stroke-filter + slim + icon, arm64)
+
+# 基于官方 Cyletix/CyIME 构建：共存包名 .eta / 模糊音锁定修复 / 笔画候选筛选 /
+# 精简资产 / Eta 图标 / 只出 arm64。
+#
+# ── 上游版本：1.15.106 ─────────────────────────────────────────────
+# 本 fork 的「笔画选字」= 拼音出候选后从空格键起笔、按笔形过滤当前候选。
+# 上游 1.15.106 加的笔画功能是**另一件事**：独立的笔画输入键盘
+# （StrokeKeyboardLayout / StrokePreedit / StrokeGlyphInline / StrokeCellDictionary），
+# 用 hspnz 一个字一个字打，不碰拼音候选。两者互补，上游没有候选筛选
+# （已核对 1.15.106 完整文件树，无 CandidateStrokeFilter.kt）。
+#
+# PR #575 原快照 base 是 1.15.105，且捆了 75 个文件（剪贴板收藏、底部留白、
+# 符号编辑等无关改动），在 1.15.106 上 apply 失败（31 个文件重叠）。
+# 现在用的是**只含笔画筛选**的移植版 pr575-stroke-filter-106.patch：
+#   - 用 1.15.105 + 1.15.106 + stroke-only 三方合并生成
+#   - 只保留 stroke 相关 hunk（其余 PR 附带改动全部丢弃）
+#   - 1 处冲突已手工解决：barAssociationWords 用上游的 cs.showsTypedEnglishWord
+#     判断 + stroke 过滤后的 visibleAssociations
+#   - 补回上游的 BottomLiftSpacer（三方合并时被 PR 的旧实现挤掉的）
+#   - 全部 10 个 patch 已在干净 1.15.106 上按顺序累积应用验证通过
+#
+# 升级上游时：先看上游是否已提供「候选笔画筛选」；再重新生成 stroke 移植补丁。
+# 同一版本已发过就跳过（想重建勾 force）。
+on:
+  schedule:
+    - cron: '30 20 * * *'          # UTC 20:30 = 北京 04:30
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: '上游 ref / tag（留空=用锁定的 1.15.106，见文件头说明）'
+        required: false
+        default: ''
+      force:
+        description: '该版本已发过也强制重建'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cyime-eta
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve upstream version
+        id: ver
+        env:
+          # 锁定的上游版本：笔画筛选移植补丁是针对这个版本生成并验证的。
+          # 换版本前必须重新生成并验证补丁，见文件头说明。
+          PINNED_UPSTREAM: '1.15.106'
+        run: |
+          set -euo pipefail
+          REF='${{ inputs.upstream_ref }}'
+          if [ -z "$REF" ]; then
+            REF="$PINNED_UPSTREAM"
+            echo "使用锁定版本 $REF（不自动跟最新 tag）"
+          else
+            echo "手动指定上游 ref = $REF"
+            if [ "$REF" != "$PINNED_UPSTREAM" ]; then
+              echo "::warning::偏离锁定版本 $PINNED_UPSTREAM，笔画筛选移植补丁可能无法应用"
+            fi
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "release_tag=v${REF}-eta" >> "$GITHUB_OUTPUT"
+          echo "上游 ref = $REF"
+
+      - name: Skip if already released
+        id: skip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ '${{ inputs.force }}' = 'true' ]; then
+            echo "force=true，继续构建"; echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "release $TAG 已存在，跳过（要重建请勾 force）"; echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout patch source
+        if: steps.skip.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          path: patchsrc
+          sparse-checkout: |
+            .github/eta
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout upstream
+        if: steps.skip.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: Cyletix/CyIME
+          ref: ${{ steps.ver.outputs.ref }}
+          submodules: recursive
+          fetch-depth: 0
+          path: src
+
+      - name: Apply stroke filter port (候选栏笔画筛选)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          P=../patchsrc/.github/eta/pr575-stroke-filter-106.patch
+          echo "来源：Cyletix/CyIME PR #575 只取笔画筛选部分，三方合并到 1.15.106"
+          echo "改动：CandidateStrokeFilter.kt 新增 + CandidateBar/CandidatePage/KeyboardView/SpaceKeyButton 接线"
+          if ! git apply --check -p1 "$P"; then
+            echo "::error::笔画筛选移植补丁无法应用（上游又改了这几个文件），需要重新生成。"
+            exit 1
+          fi
+          git apply -p1 "$P"
+          echo "=== 笔画筛选落地确认 ==="
+          F=app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateStrokeFilter.kt
+          [ -f "$F" ] && echo "  ok  $F" || { echo "::error::缺 $F"; exit 1; }
+          for sym in CandidateStrokeTable classifyCandidateStroke candidateStrokeGesture SpaceStrokeController; do
+            grep -q "$sym" "$F" || { echo "::error::CandidateStrokeFilter.kt 缺 $sym"; exit 1; }
+            echo "  ok  $sym"
+          done
+          echo "=== 接线确认（KeyboardView）==="
+          for sym in strokeCode strokeTable spaceStrokeController LocalSpaceStrokeController; do
+            grep -q "$sym" app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt \
+              || { echo "::error::KeyboardView.kt 缺 $sym 接线"; exit 1; }
+            echo "  ok  $sym"
+          done
+          echo "=== 上游 1.15.106 的功能不能丢 ==="
+          grep -q "BottomLiftSpacer(" app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt \
+            && echo "  ok  BottomLiftSpacer" || { echo "::error::丢失上游的 BottomLiftSpacer"; exit 1; }
+          grep -q "cs.showsTypedEnglishWord" app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt \
+            && echo "  ok  showsTypedEnglishWord" || { echo "::error::丢失上游的 showsTypedEnglishWord 判断"; exit 1; }
+
+      - name: Apply coexist package patch (required)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          P=../patchsrc/.github/eta/coexist-package.patch
+          if ! git apply --check -p1 "$P"; then
+            echo "::error::coexist-package.patch 无法应用（upstream 改了 buildTypes），需要人工 rebase。"
+            sed -n '155,185p' app/build.gradle.kts || true
+            exit 1
+          fi
+          git apply -p1 "$P"
+          grep -n 'applicationIdSuffix' app/build.gradle.kts
+
+      - name: Apply fuzzy-lock patch (required)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          P=../patchsrc/.github/eta/fuzzylock.patch
+          if ! git apply --check -p1 "$P"; then
+            echo "::error::fuzzylock.patch 无法应用（upstream 改了 ConstrainGraph），需要人工 rebase。"
+            sed -n '240,300p' app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h || true
+            exit 1
+          fi
+          git apply -p1 "$P"
+          sed -n '260,300p' app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
+
+      - name: Apply slim-assets patch (best effort)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -uo pipefail
+          P=../patchsrc/.github/eta/slim-assets.patch
+          if git apply --check -p1 "$P" 2>/dev/null; then
+            git apply -p1 "$P"; echo "已应用：精简资产"
+          else
+            echo "::warning::slim-assets.patch 不适用，按原样构建（包会大一些）"
+          fi
+
+      - name: Apply slim-manifest-sync patch (与精简资产必须同步)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -uo pipefail
+          P=../patchsrc/.github/eta/slim-manifest-sync.patch
+          if git apply --check -p1 "$P" 2>/dev/null; then
+            git apply -p1 "$P"; echo "已应用：词库清单跳过被精简的资产"
+          else
+            echo "::error::slim-manifest-sync.patch 无法应用。词库清单会列出被 ignoreAssetsPatterns 排除的资产，安装后自动准备抛 FileNotFoundException 并无限重试。"
+            exit 1
+          fi
+
+      - name: Apply eta-brand patch (应用名区分官方版)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -uo pipefail
+          P=../patchsrc/.github/eta/eta-brand.patch
+          if git apply --check -p1 "$P" 2>/dev/null; then
+            git apply -p1 "$P"; echo "已应用：应用名改为 CyIME Eta"
+          else
+            echo "::warning::eta-brand.patch 不适用，应用名仍为 CyIME（与官方版重名）"
+          fi
+
+      - name: Apply eta-icon patch (Eta 版应用图标)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -uo pipefail
+          P=../patchsrc/.github/eta/eta-icon.patch
+          if git apply --check -p1 "$P" 2>/dev/null; then
+            git apply -p1 "$P"; echo "已应用：图标换成 Eta 版 η"
+          else
+            echo "::warning::eta-icon.patch 不适用，图标仍是官方样式（不影响功能）"
+          fi
+
+      - name: Apply skip-install-integrity patch (best effort)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -uo pipefail
+          P=../patchsrc/.github/eta/skip-install-integrity.patch
+          if git apply --check -p1 "$P" 2>/dev/null; then
+            git apply -p1 "$P"; echo "已应用：跳过签名自检（本包自签）"
+          else
+            echo "::warning::skip-install-integrity.patch 不适用，进设置可能会弹一次非官方签名提示"
+          fi
+
+      - name: Apply skip-offline-translate patch (best effort)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -uo pipefail
+          P=../patchsrc/.github/eta/skip-offline-translate.patch
+          if git apply --check -p1 "$P" 2>/dev/null; then
+            git apply -p1 "$P"
+            echo "已应用：跳过缺失的 libcytranslate 预编译库（上游该资产 404，只影响翻译插件，不影响语音输入）"
+          else
+            echo "::warning::skip-offline-translate.patch 不适用（上游可能已修好该资产），按原样构建"
+          fi
+
+      - name: Apply arm64-only patch (best effort)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -uo pipefail
+          P=../patchsrc/.github/eta/arm64-only.patch
+          if git apply --check -p1 "$P" 2>/dev/null; then
+            git apply -p1 "$P"; echo "已应用：只构建 arm64-v8a"
+          else
+            echo "::warning::arm64-only.patch 不适用，编全架构但只上传 arm64"
+          fi
+
+      - name: Set up JDK 17
+        if: steps.skip.outputs.skip != 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Android SDK
+        if: steps.skip.outputs.skip != 'true'
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Install NDK
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          NDK_VER=$(grep -oE 'ndkVersion[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts \
+                    | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+          NDK_VER=${NDK_VER:-29.0.14206865}
+          echo "NDK: $NDK_VER"
+          sdkmanager "ndk;$NDK_VER"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VER" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/$NDK_VER" >> "$GITHUB_ENV"
+
+      - name: Install build tools
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+
+      - name: Cache native deps
+        if: steps.skip.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            src/app/src/main/jni/onnxruntime
+            src/app/src/main/jniLibs/**/libonnxruntime.so
+          key: eta-native-${{ runner.os }}-${{ hashFiles('src/app/build-logic/tasks-native.gradle.kts') }}
+          restore-keys: |
+            eta-native-${{ runner.os }}-
+
+      - name: Cache CMake build
+        if: steps.skip.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            src/app/.cxx
+            src/app/src/main/jni/boost
+            src/app/src/main/jni/boost-*.tar.xz
+          key: eta-cmake-${{ runner.os }}-${{ hashFiles('src/app/src/main/jni/CMakeLists.txt') }}
+          restore-keys: |
+            eta-cmake-${{ runner.os }}-
+
+      - name: Setup signing keystore
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [ -n "${SIGNING_KEY:-}" ] || { echo "::error::缺少 SIGNING_KEY"; exit 1; }
+          # build.gradle.kts 的 keyBase64 分支在配置阶段往 app/build 写文件，目录可能还不存在；
+          # 先落成真实文件，走 storeFile 分支。
+          printf '%s' "$SIGNING_KEY" | base64 -d > "$GITHUB_WORKSPACE/eta.jks"
+          mkdir -p app/build
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$GITHUB_WORKSPACE/eta.jks" "$KEY_STORE_PASSWORD" "$ALIAS" "$KEY_PASSWORD" \
+            > app/keystore.properties
+          ls -l "$GITHUB_WORKSPACE/eta.jks"
+
+      - name: Download native deps (ONNX Runtime)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          chmod +x gradlew
+          ./gradlew downloadOnnx --no-daemon
+
+      - name: Build signed release APK
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease --no-daemon
+          ls -l app/build/outputs/apk/release/
+
+      - name: Verify APK contents
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | tail -1)
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          echo "APK: $APK"
+
+          echo "=== 签名 ==="
+          "$APKSIGNER" verify --verbose --min-sdk-version 23 "$APK"
+
+          echo "=== 包名（必须是 com.cyletix.cyime.eta）==="
+          PKG=$("$AAPT2" dump packagename "$APK")
+          echo "package = $PKG"
+          [ "$PKG" = "com.cyletix.cyime.eta" ] || { echo "::error::包名不是 .eta，共存失败"; exit 1; }
+
+          echo "=== 架构（必须只有 arm64-v8a）==="
+          ABIS=$(unzip -l "$APK" 'lib/*' | awk -F'lib/' '/lib\//{split($2,a,"/"); print a[1]}' | sort -u)
+          echo "abis = $(echo "$ABIS" | tr '\n' ' ')"
+          [ "$(echo "$ABIS" | tr '\n' ',')" = "arm64-v8a," ] || { echo "::error::不是纯 arm64"; exit 1; }
+
+          echo "=== 必须存在的资产 ==="
+          for f in assets/rime_ice/cn_dicts/base.dict.yaml \
+                   assets/rime_chinese/t9_pinyin.schema.yaml \
+                   assets/rime_chinese/stroke.schema.yaml \
+                   assets/association/lccc-base-v1.bin \
+                   assets/english_trie.bin \
+                   assets/rime_chinese/t9_sentence.vocab \
+                   assets/ChaiPUA-0.2.7-snow.ttf \
+                   lib/arm64-v8a/libsherpa-onnx-jni.so \
+                   lib/arm64-v8a/libonnxruntime.so; do
+            unzip -l "$APK" "$f" >/dev/null 2>&1 || { echo "::error::缺 $f"; exit 1; }
+            echo "  ok  $f"
+          done
+
+          echo "=== 笔画筛选（候选栏笔画选字）==="
+          if unzip -l "$APK" | grep -q "classes.*dex"; then
+            echo "  dex 检查见下方 dexdump（可选）"
+          fi
+
+          echo "=== 应用图标（必须是 Eta 版）==="
+          if "$AAPT2" dump resources "$APK" 2>/dev/null | grep -q "mipmap/eta_launcher"; then
+            echo "  ok  mipmap/eta_launcher"
+          else
+            echo "::warning::包里没有 eta_launcher，图标可能还是官方样式"
+          fi
+
+          echo "=== 必须已排除的资产 ==="
+          for f in assets/rime/pinyin_simp_ext.dict.yaml \
+                   assets/rime/wubi98.dict.yaml \
+                   assets/rime/wubi86.dict.yaml \
+                   assets/rime_chinese/cyime_cangjie.dict.yaml \
+                   assets/rime_chinese/cyime_quick.dict.yaml \
+                   assets/rime_chinese/cyime_aux_zrm.dict.yaml \
+                   assets/english_bigrams.txt \
+                   assets/english_glide_words.txt \
+                   assets/katex/katex.min.css; do
+            if unzip -l "$APK" "$f" >/dev/null 2>&1; then echo "::warning::仍在包里: $f"; else echo "  gone $f"; fi
+          done
+
+          echo "=== 体积 ==="
+          du -h "$APK"
+
+      - name: Collect APK
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          rm -rf out && mkdir -p out
+          cp app/build/outputs/apk/release/*.apk out/
+
+      - name: Create release
+        if: steps.skip.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.release_tag }}
+          name: CyIME ${{ steps.ver.outputs.ref }} · eta 版（共存 + 模糊音修复 + 精简）
+          body: |
+            基于官方 **CyIME ${{ steps.ver.outputs.ref }}**（GPL-3.0）构建，四个补丁，其余与原版一致。
+
+            ## 1 · 可与官方版共存
+
+            `applicationIdSuffix = ".eta"` → 包名 **`com.cyletix.cyime.eta`**。
+            和官方 `com.cyletix.cyime` 是两个独立应用，**不用卸载官方版**，官方版的
+            自建布局、词库、模糊音开关全部不动。
+
+            装好后需要重新建一次 18 键：
+            `q,we,rt,y,u,io,p / a,sd,fg,h,jk,l,_ / z,xc,v,bn,m`，双拼选小鹤，模糊音开 `in/ing`。
+
+            ## 2 · 模糊音锁定修复
+
+            `ConstrainGraph()`：点选编码上的读音时，原实现把同一段编码上的其它读音边整批清空。
+            合并键布局下一个码本就对应多个音节（小鹤 18 键 `jj` = jing / kan / kuai），模糊音又让
+            `jin` 落到 `jj` 上，于是点一下 `jing`，金 / 看 / 快这些字全没了。
+
+            实测 `jj` 共 123 个候选：jing 49 / jin 43 / kan 18 / kuai 13，金在第 5 位；
+            点 `jing` 后只剩 49 个 jing，另外 74 个被删。
+
+            改为：选中的读音保持原权重排最前，同段其它的普通读音与模糊音读音保留并降权
+            （`credibility -= 1.0`）；简拼 / 纠错类边仍然排除。没点读音时行为完全不变。
+
+            ## 3 · 精简资产（约 −20 MB）
+
+            只保留九键中文、18 键中文、26 键英文用得上的东西：
+
+            - 去掉：五笔 86/98、旧版简体拼音、仓颉、速成、自然码辅码、KaTeX、生僻字字体
+              → 约 15 MB
+            - 去掉：英文滑行词表 `english_bigrams.txt`、`english_glide_words.txt`
+              → 约 4.8 MB（`english_trie.bin` 是英文词联想用的，保留）
+
+            保留：雾凇词库、笔画方案（后面要做笔画筛选）、词联想、离线语音、手写、拼音滑行。
+
+            ## 4 · 候选栏笔画筛选（来自 PR #575）
+
+            打了拼音、候选出来之后，**直接在候选区画一笔**，按笔顺首字筛候选：
+
+            ```
+            拼音 jing  →  [经 精 惊 静 竟 景 敬 警 …]
+            画一笔「横」→  [经 敬 警 …]        只留首字第一笔是横的
+            再画「竖」  →  [经 敬 …]           继续筛
+            ```
+
+            退格撤一笔；选词即送首选。
+
+            代码取自社区 PR **Cyletix/CyIME#575**（`onlyjco:cjime-consolidated-pr` @ `d61d7401`），
+            原样使用，没有改写。该 PR 同时带来剪贴板收藏、底部留白抬升、若干手势改进与修复，
+            也一并包含在内。
+
+            笔画码表读的是包内的 `assets/rime_chinese/stroke.dict.yaml`（构建时由
+            `tasks-stroke.gradle.kts` 生成），精简补丁没有排除它。
+
+            ## 5 · 只出 arm64-v8a
+
+            native 只编一个 ABI，构建时间减半。
+
+            ## 顺带
+
+            跳过「安装包签名自检」——本包用自建 keystore 签名，否则每次打开设置都会弹
+            「非官方签名」警告。
+
+          files: src/out/*.apk
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
