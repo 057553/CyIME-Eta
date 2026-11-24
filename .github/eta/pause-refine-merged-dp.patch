@@ -1,6 +1,6 @@
 diff -ruN a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt b/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt
---- a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt	2026-11-24 06:43:16.479789581 +0000
-+++ b/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt	2026-11-24 06:43:16.479789581 +0000
+--- a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt	2026-11-24 07:43:01.788102463 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt	2026-11-24 07:43:01.788102463 +0000
 @@ -37,9 +37,14 @@
  /**
   * 停顿纠错查的输入：26 键只有小写字母；14 键只有合并键的大写代表字母（QETUOADGJZCB）和 l、m。
@@ -75,9 +75,64 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.
              }
              if (changed && service.uiState.value.inputSessionId == ui.inputSessionId &&
                  service.candidateState.value.engineRevision == state.engineRevision) {
+diff -ruN a/app/src/main/jni/librime_jni/candidate_policy.cc b/app/src/main/jni/librime_jni/candidate_policy.cc
+--- a/app/src/main/jni/librime_jni/candidate_policy.cc	2026-11-24 07:43:01.796102463 +0000
++++ b/app/src/main/jni/librime_jni/candidate_policy.cc	2026-11-24 07:43:01.796102463 +0000
+@@ -1,4 +1,5 @@
+ #include "candidate_policy.h"
++#include <android/log.h>
+ #include "candidate_pins.h"
+ #include "basic_particle_choices.h"
+ #include <algorithm>
+@@ -989,12 +990,27 @@
+       context->composition().back().status >= rime::Segment::kSelected ||
+       context->composition().back().selected_index != 0) return false;
+   const auto original = context->composition().back();
+-  if (!original.menu || original.menu->Prepare(2) < 2) return false;
++  const int prepared = original.menu ? static_cast<int>(original.menu->Prepare(2)) : -1;
++  if (!original.menu || prepared < 2) {
++    __android_log_print(ANDROID_LOG_INFO, "CyIMEPause", "native early menu=%d prep=%d in='%s'",
++                        original.menu ? 1 : 0, prepared, context->input().c_str());
++    return false;
++  }
+   an<Candidate> digit_edit;
+   const bool numeric = context->input().front() >= '2' && context->input().front() <= '9';
+   const auto registered = spelling_policies.find(context);
+   // Letters: the sentences the word model builds are made now when the scheme leaves them to the pause.
+   const bool sentences = !numeric && registered != spelling_policies.end() && registered->second->PauseSentences();
++  {
++    auto txt = [](const an<Candidate>& c) { return c ? c->text() : string("<null>"); };
++    string before;
++    for (size_t i = 0; i < 5; ++i) { before += txt(original.menu->GetCandidateAt(i)); before += '|'; }
++    __android_log_print(ANDROID_LOG_INFO, "CyIMEPause",
++                        "native in='%s' numeric=%d reg=%d sentences=%d refining=%d before=%s",
++                        context->input().c_str(), numeric ? 1 : 0,
++                        registered != spelling_policies.end() ? 1 : 0, sentences ? 1 : 0,
++                        rime::T9RefiningSentences() ? 1 : 0, before.c_str());
++  }
+   // Letters: nothing to look up when the scheme has no pause prism, its switches are all off or the input is too long.
+   if (!numeric && !sentences &&
+       (registered == spelling_policies.end() || !registered->second->PauseLookup(context->input().size())))
+@@ -1062,6 +1078,16 @@
+     auto after = menu->GetCandidateAt(0);
+     keep = before && after && before->text() != after->text();
+   }
++  {
++    auto txt = [](const an<Candidate>& c) { return c ? c->text() : string("<null>"); };
++    string after;
++    for (size_t i = 0; i < 5; ++i) { after += txt(menu->GetCandidateAt(i)); after += '|'; }
++    string before;
++    for (size_t i = 0; i < 5; ++i) { before += txt(original.menu->GetCandidateAt(i)); before += '|'; }
++    __android_log_print(ANDROID_LOG_INFO, "CyIMEPause",
++                        "native after=%s inserted=%d keep=%d same=%d", after.c_str(),
++                        omission_inserted ? 1 : 0, keep ? 1 : 0, before == after ? 1 : 0);
++  }
+   if (!keep) context->composition().back() = original;
+   return keep;
+ }
 diff -ruN a/app/src/main/jni/librime_jni/rime_jni.cc b/app/src/main/jni/librime_jni/rime_jni.cc
---- a/app/src/main/jni/librime_jni/rime_jni.cc	2026-11-24 06:43:16.483789581 +0000
-+++ b/app/src/main/jni/librime_jni/rime_jni.cc	2026-11-24 06:43:16.487789581 +0000
+--- a/app/src/main/jni/librime_jni/rime_jni.cc	2026-11-24 07:43:01.792102463 +0000
++++ b/app/src/main/jni/librime_jni/rime_jni.cc	2026-11-24 07:43:01.792102463 +0000
 @@ -1374,10 +1374,21 @@
      bool refineOmission() {
          if (!rime || !session_id_) return false;
