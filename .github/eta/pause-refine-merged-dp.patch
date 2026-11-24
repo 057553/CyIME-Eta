@@ -1,6 +1,6 @@
 diff -ruN a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt b/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt
---- a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt	2026-11-24 05:57:11.400229573 +0000
-+++ b/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt	2026-11-24 05:57:11.400229573 +0000
+--- a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt	2026-11-24 06:43:16.479789581 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt	2026-11-24 06:43:16.479789581 +0000
 @@ -37,9 +37,14 @@
  /**
   * 停顿纠错查的输入：26 键只有小写字母；14 键只有合并键的大写代表字母（QETUOADGJZCB）和 l、m。
@@ -75,3 +75,31 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.
              }
              if (changed && service.uiState.value.inputSessionId == ui.inputSessionId &&
                  service.candidateState.value.engineRevision == state.engineRevision) {
+diff -ruN a/app/src/main/jni/librime_jni/rime_jni.cc b/app/src/main/jni/librime_jni/rime_jni.cc
+--- a/app/src/main/jni/librime_jni/rime_jni.cc	2026-11-24 06:43:16.483789581 +0000
++++ b/app/src/main/jni/librime_jni/rime_jni.cc	2026-11-24 06:43:16.487789581 +0000
+@@ -1374,10 +1374,21 @@
+     bool refineOmission() {
+         if (!rime || !session_id_) return false;
+         auto session = rime::Service::instance().GetSession(session_id_);
++        if (!session) return false;
+         std::string schema;
+-        return session && (session->schema()->config()->GetString("cyime_omission_schema", &schema) ||
+-                           session->schema()->config()->GetString("cyime_edit_schema", &schema)) &&
+-               cyime::RefineOmission(session->context());
++        // t9/model_sentences_on_pause: the pause is also where the word model builds whole
++        // sentences, and that needs no omission prism. Double pinyin on merged keys (the 18-key
++        // layout) has no prism at all, so requiring one here dropped every pause refresh.
++        bool allowed = session->schema()->config()->GetString("cyime_omission_schema", &schema) ||
++                       session->schema()->config()->GetString("cyime_edit_schema", &schema);
++        if (!allowed) {
++            int count = 0;
++            bool on_pause = false, rescore = false;
++            allowed = session->schema()->config()->GetInt("t9/model_sentences", &count) && count > 0 &&
++                      session->schema()->config()->GetBool("t9/model_sentences_on_pause", &on_pause) && on_pause &&
++                      session->schema()->config()->GetBool("t9/sentence_rescore", &rescore) && rescore;
++        }
++        return allowed && cyime::RefineOmission(session->context());
+     }
+ 
+     bool refineT9Sentences() {
