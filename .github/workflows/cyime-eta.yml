@@ -35,6 +35,14 @@ on:
         description: '该版本已发过也强制重建'
         type: boolean
         default: false
+      version_code:
+        description: '覆盖 versionCode（留空=用 gradle 默认）'
+        required: false
+        default: ''
+      version_name:
+        description: '覆盖 versionName（留空=用 gradle 默认）'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -250,6 +258,19 @@ jobs:
             echo "::warning::arm64-only.patch 不适用，编全架构但只上传 arm64"
           fi
 
+      - name: Apply pause-refine patch (合并键盘双拼停顿后整句重建)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -uo pipefail
+          P=../patchsrc/.github/eta/pause-refine-merged-dp.patch
+          if git apply --check -p1 "$P" 2>/dev/null; then
+            git apply -p1 "$P"; echo "已应用：18 键/14 键双拼停一下也重拼整句"
+          else
+            echo "::error::pause-refine-merged-dp.patch 无法应用（ImeSessionController 改了停顿闸门），需要人工 rebase。"
+            exit 1
+          fi
+
       - name: Set up JDK 17
         if: steps.skip.outputs.skip != 'true'
         uses: actions/setup-java@v4
@@ -338,7 +359,14 @@ jobs:
         working-directory: src
         run: |
           set -euo pipefail
-          ./gradlew assembleRelease --no-daemon
+          ARGS=""
+          VC='${{ inputs.version_code }}'
+          VN='${{ inputs.version_name }}'
+          if [ -n "$VC" ] && [ -n "$VN" ]; then
+            ARGS="-PversionCode=$VC -PversionName=$VN"
+            echo "覆盖版本：code=$VC name=$VN"
+          fi
+          ./gradlew assembleRelease --no-daemon $ARGS
           ls -l app/build/outputs/apk/release/
 
       - name: Verify APK contents
