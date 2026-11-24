@@ -158,20 +158,6 @@ jobs:
           git apply -p1 "$P"
           grep -n 'applicationIdSuffix' app/build.gradle.kts
 
-      - name: Apply fuzzy-lock patch (required)
-        if: steps.skip.outputs.skip != 'true'
-        working-directory: src
-        run: |
-          set -euo pipefail
-          P=../patchsrc/.github/eta/fuzzylock.patch
-          if ! git apply --check -p1 "$P"; then
-            echo "::error::fuzzylock.patch 无法应用（upstream 改了 ConstrainGraph），需要人工 rebase。"
-            sed -n '240,300p' app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h || true
-            exit 1
-          fi
-          git apply -p1 "$P"
-          sed -n '260,300p' app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
-
       - name: Apply slim-assets patch (best effort)
         if: steps.skip.outputs.skip != 'true'
         working-directory: src
