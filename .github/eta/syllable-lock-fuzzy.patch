@@ -112,16 +112,24 @@ index d99fd84..c1b1fcb 100644
  internal fun parsePinyinSyllableOptions(records: Array<String>, input: String,
      protectedLength: Int): List<PinyinSyllableOption> = records.mapNotNull { record ->
 diff --git a/app/src/main/java/com/kingzcheung/xime/rime/RimeEngine.kt b/app/src/main/java/com/kingzcheung/xime/rime/RimeEngine.kt
-index 8cb3e3b..0197dd0 100644
+index 8cb3e3b..a5adf15 100644
 --- a/app/src/main/java/com/kingzcheung/xime/rime/RimeEngine.kt
 +++ b/app/src/main/java/com/kingzcheung/xime/rime/RimeEngine.kt
-@@ -907,14 +907,26 @@ class RimeEngine {
+@@ -891,6 +891,7 @@ class RimeEngine {
+ 
+     /** Native graph restriction handles shuangpin collisions and xian versus xi+an. */
+     internal fun selectPinyinSyllable(owner: PinyinSyllableChoices, index: Int,
++        fuzzy: com.kingzcheung.xime.rime.FuzzySyllableEquivalences,
+         isStillCurrent: () -> Boolean = { true }): RimeProcessResult? = locked {
+         if (!isInitialized || !nativeHasSession() || !isStillCurrent() || nativeIsAsciiMode()) return@locked null
+         val before = nativePinyinEditSnapshot()
+@@ -907,14 +908,29 @@ class RimeEngine {
                  if (!nativeSetInput(letter)) return@editPinyinAndReadState false
              } else {
                  val option = owner.options.getOrNull(index) ?: return@editPinyinAndReadState false
 +                // 同一码段上与选中项模糊音等价的读音是同一读音的不同写法，要一起保留。
 +                // 等价类从方案 speller/algebra 的 fuzz 规则推导，不硬编码任何一组。
-+                val fuzzyKeep = owner.fuzzyKeepIds(index, fuzzyEquivalences(owner.schemaId))
++                val fuzzyKeep = owner.fuzzyKeepIds(index, fuzzy)
                  if (!nativeSelectPinyinSyllable(owner.inputText, owner.schemaId, option.start, option.end,
 -                        option.syllableId)) return@editPinyinAndReadState false
 +                        option.syllableId, fuzzyKeep)) return@editPinyinAndReadState false
@@ -131,10 +139,13 @@ index 8cb3e3b..0197dd0 100644
          }
      }
  
-+    /** 方案的模糊音等价类，按 schemaId 缓存；规则来自 speller/algebra。 */
++    /**
++     * 方案的模糊音等价类，按 schemaId 缓存；规则来自 speller/algebra。
++     * 内部会读方案配置（schema_open），**必须在 locked {} 之外调用**，否则可能重入死锁。
++     */
 +    private val fuzzyEquivalenceCache = HashMap<String, com.kingzcheung.xime.rime.FuzzySyllableEquivalences>()
 +
-+    private fun fuzzyEquivalences(schemaId: String): com.kingzcheung.xime.rime.FuzzySyllableEquivalences =
++    internal fun fuzzyEquivalences(schemaId: String): com.kingzcheung.xime.rime.FuzzySyllableEquivalences =
 +        fuzzyEquivalenceCache.getOrPut(schemaId) {
 +            com.kingzcheung.xime.rime.FuzzySyllableEquivalences(
 +                getSchemaList(schemaId, "speller/algebra"))
@@ -143,7 +154,7 @@ index 8cb3e3b..0197dd0 100644
      internal fun applyPinyinEdit(expectedInput: String, newInput: String, caret: Int,
          protectedLength: Int = 0, protectedText: String = "", expectedSchema: String? = null,
          visibleReading: String? = null,
-@@ -1019,7 +1031,7 @@ class RimeEngine {
+@@ -1019,7 +1035,7 @@ class RimeEngine {
      private external fun nativePinyinEditSnapshot(): Array<String>
      private external fun nativePinyinSyllableOptions(): Array<String>
      private external fun nativeSelectPinyinSyllable(expectedInput: String, expectedSchema: String,
@@ -152,6 +163,28 @@ index 8cb3e3b..0197dd0 100644
      private external fun nativePinyinSyllablesChosen(): Int
      private external fun nativeUndoPinyinSyllable(expectedInput: String, expectedSchema: String): Boolean
      private external fun nativeSetCaret(caret: Int)
+diff --git a/app/src/main/java/com/kingzcheung/xime/service/ImePinyinSyllableSelector.kt b/app/src/main/java/com/kingzcheung/xime/service/ImePinyinSyllableSelector.kt
+index 1710185..849a3a5 100644
+--- a/app/src/main/java/com/kingzcheung/xime/service/ImePinyinSyllableSelector.kt
++++ b/app/src/main/java/com/kingzcheung/xime/service/ImePinyinSyllableSelector.kt
+@@ -36,9 +36,16 @@ internal class ImePinyinSyllableSelector(private val service: XimeInputMethodSer
+         val layout = service.uiState.value.inputProfile.layout
+         val isCurrent = { current(snapshot.inputSessionId, snapshot.schemaId, layout) }
+         if (!isCurrent() || (snapshot.letterGroup != null && layout != InputLayout.MERGED14)) { reply(null); return }
++        // 等价类要读方案配置，必须在这里（锁外）先算好再交给锁内的选择流程。
++        val fuzzy = service.rimeEngine.fuzzyEquivalences(snapshot.schemaId)
+         service.keyRouter.postRimeJob {
+             if (!isCurrent()) return@postRimeJob
+-            val result = service.rimeEngine.selectPinyinSyllable(snapshot, index, isCurrent)
++            val chosen = snapshot.options.getOrNull(index)
++            val keepIds = snapshot.fuzzyKeepIds(index, fuzzy)
++            android.util.Log.i("CySyl", "fuzzy schema=${snapshot.schemaId} " +
++                "chosen=${chosen?.pinyin} keep=${snapshot.options.filter { it.syllableId in keepIds }.map { it.pinyin }} " +
++                "all=${snapshot.options.map { it.pinyin }}")
++            val result = service.rimeEngine.selectPinyinSyllable(snapshot, index, fuzzy, isCurrent)
+             val next = result?.let {
+                 service.rimeEngine.readPinyinSyllableChoices(it.engineRevision, layout == InputLayout.MERGED14, isCurrent)
+             }?.copy(inputSessionId = snapshot.inputSessionId)
 diff --git a/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h b/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
 index 7094f18..a98bf76 100644
 --- a/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
