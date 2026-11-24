@@ -1,6 +1,6 @@
 --- a/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
 +++ b/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
-@@ -267,8 +267,20 @@
+@@ -267,8 +267,24 @@
        if (edge->first <= start || source->first >= end) {
          ++edge;
        } else if (source->first == start && edge->first == end) {
@@ -9,15 +9,19 @@
 +        // 锁定只决定排序，不丢弃同一编码段上的其它正常读音。合并键布局里一个码本就对应
 +        // 多个音节（小鹤 18 键 jj = jing / kan / kuai），模糊音又让 jin 也落到 jj 上；
 +        // 原来清空重建会把 jin / kan / kuai 整批删掉，点一下 jing 就再也出不来“金”。
++        // 但也不能压得太轻：候选得分是 credibility + 词典权重（ln），常用字之间差 5~15，
++        // 原来只给其它读音降 1.0 压不住，点了 ding 候选仍是 diao 的「掉」排第一，
++        // 看起来像没生效。这里反过来给选中的读音加正权重，其它读音原样保留（不降权），
++        // 既不丢读音，又能让选择立刻见效。
 +        decltype(edge->second) kept;
-+        kept.emplace(syllable, chosen);
++        rime::EdgeProperties boosted = chosen;
++        boosted.credibility += 15.0;
++        kept.emplace(syllable, boosted);
 +        for (const auto& item : edge->second) {
 +          if (item.first == syllable) continue;
 +          if (item.second.type != rime::kNormalSpelling &&
 +              item.second.type != rime::kFuzzySpelling) continue;
-+          rime::EdgeProperties relaxed = item.second;
-+          relaxed.credibility -= 1.0;
-+          kept.emplace(item.first, relaxed);
++          kept.emplace(item.first, item.second);
 +        }
 +        edge->second = std::move(kept);
          ++edge;
