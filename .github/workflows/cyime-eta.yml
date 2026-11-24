@@ -258,19 +258,6 @@ jobs:
             echo "::warning::arm64-only.patch 不适用，编全架构但只上传 arm64"
           fi
 
-      - name: Apply pause-refine patch (合并键盘双拼停顿后整句重建)
-        if: steps.skip.outputs.skip != 'true'
-        working-directory: src
-        run: |
-          set -uo pipefail
-          P=../patchsrc/.github/eta/pause-refine-merged-dp.patch
-          if git apply --check -p1 "$P" 2>/dev/null; then
-            git apply -p1 "$P"; echo "已应用：18 键/14 键双拼停一下也重拼整句"
-          else
-            echo "::error::pause-refine-merged-dp.patch 无法应用（ImeSessionController 改了停顿闸门），需要人工 rebase。"
-            exit 1
-          fi
-
       - name: Set up JDK 17
         if: steps.skip.outputs.skip != 'true'
         uses: actions/setup-java@v4
