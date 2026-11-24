@@ -262,11 +262,11 @@ jobs:
         working-directory: src
         run: |
           set -uo pipefail
-          P=../patchsrc/.github/eta/diag-pinyin-syllable.patch
+          P=../patchsrc/.github/eta/diag2-all.patch
           if git apply --check -p1 "$P" 2>/dev/null; then
-            git apply -p1 "$P"; echo "已应用：音节选择诊断日志"
+            git apply -p1 "$P"; echo "已应用：音节选择诊断（含 Matches 细分）"
           else
-            echo "::warning::diag-pinyin-syllable.patch 不适用，按原样构建"
+            echo "::warning::diag2-all.patch 不适用，按原样构建"
           fi
 
       - name: Set up JDK 17
