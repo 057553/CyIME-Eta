@@ -167,13 +167,30 @@ index 1710185..d5af7f9 100644
                  service.rimeEngine.readPinyinSyllableChoices(it.engineRevision, layout == InputLayout.MERGED14, isCurrent)
              }?.copy(inputSessionId = snapshot.inputSessionId)
 diff --git a/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h b/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
-index 7094f18..e857f14 100644
+index 7094f18..a8d4f96 100644
 --- a/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
 +++ b/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
-@@ -25,6 +25,52 @@
+@@ -10,11 +10,13 @@
+ #include <set>
+ #include <string>
+ #include <string_view>
++#include <utility>
+ #include <vector>
+ #include <rime/algo/syllabifier.h>
+ #include <rime/candidate.h>
+ #include <rime/context.h>
+ #include <rime/dict/dictionary.h>
++#include <rime/dict/table.h>
+ #include <rime/dict/corrector.h>
+ #include <rime/engine.h>
+ #include <rime/gear/translator_commons.h>
+@@ -25,6 +27,55 @@
  namespace cyime {
  namespace pinyin_selection {
  
++// 定义在文件后部（读方案 config 建字典）；此处前置声明以便 ConstrainGraph 取拼音表。
++inline std::unique_ptr<rime::Dictionary> OpenDictionary(rime::Schema* schema);
++
 +// 模糊音规则：(被替换片段, 替换片段)。由调用方从方案 speller/algebra 的
 +// `fuzz/正则/替换/` 解析后传入，代码里不出现任何一组具体模糊音。
 +inline thread_local const std::vector<std::pair<std::string, std::string>>* g_fuzzy_rules = nullptr;
@@ -223,17 +240,17 @@ index 7094f18..e857f14 100644
  // A session-local constraint, never a spelling rewrite. The underscore makes
  // Rime discard it at the schema boundary. The engine update hook preserves
  // an unchanged selected prefix across suffix edits, while dropping damaged
-@@ -249,7 +295,8 @@ inline void RebuildIndices(rime::SyllableGraph* graph) {
+@@ -249,7 +300,8 @@ inline void RebuildIndices(rime::SyllableGraph* graph) {
  // Pure graph operation, also used by the native regression probe. Span ends
  // include any trailing speller delimiters, exactly as Rime's graph does.
  inline bool ConstrainGraph(rime::SyllableGraph* graph, size_t start, size_t end,
 -                           rime::SyllableId syllable, bool allow_abbreviation = false) {
 +                           rime::SyllableId syllable, bool allow_abbreviation = false,
-+                           const rime::Table* table = nullptr) {
++                           rime::Table* table = nullptr) {
    if (!graph || start >= end || end > graph->input_length) return false;
    auto from = graph->edges.find(start);
    if (from == graph->edges.end()) return false;
-@@ -267,8 +314,20 @@ inline bool ConstrainGraph(rime::SyllableGraph* graph, size_t start, size_t end,
+@@ -267,8 +319,20 @@ inline bool ConstrainGraph(rime::SyllableGraph* graph, size_t start, size_t end,
        if (edge->first <= start || source->first >= end) {
          ++edge;
        } else if (source->first == start && edge->first == end) {
@@ -256,13 +273,11 @@ index 7094f18..e857f14 100644
          ++edge;
        } else {
          edge = source->second.erase(edge);
-@@ -306,10 +365,14 @@ inline bool ApplyGraphLock(rime::Context* context, rime::Schema* schema,
+@@ -306,10 +370,12 @@ inline bool ApplyGraphLock(rime::Context* context, rime::Schema* schema,
      return true;
    bool applied = segment_start <= lock_start &&
        lock_end <= segment_start + graph->input_length;
-+  std::unique_ptr<rime::Dictionary> lock_dictionary = OpenDictionary(schema);
-+  const rime::Table* lock_table = (lock_dictionary && lock_dictionary->primary_table())
-+      ? lock_dictionary->primary_table() : nullptr;
++  rime::Table* lock_table = lock_dictionary ? lock_dictionary->primary_table().get() : nullptr;
    for (size_t i = 0; applied && i < active; ++i) {
      applied = ConstrainGraph(graph, lock.spans[i].start - segment_start,
                               lock.spans[i].end - segment_start, lock.spans[i].syllable,
@@ -272,18 +287,16 @@ index 7094f18..e857f14 100644
    }
    if (applied) {
      if (constrained) *constrained = true;
-@@ -383,6 +446,10 @@ inline size_t BuildGraph(rime::Syllabifier& builder, const std::string& input,
+@@ -383,6 +449,8 @@ inline size_t BuildGraph(rime::Syllabifier& builder, const std::string& input,
    rime::SyllableGraph before;
    if (start != 0 && static_cast<size_t>(builder.BuildSyllableGraph(
            input.substr(0, start), prism, &before)) != start) return fail();
 +  // 拼音表把 syllableId 还原成拼音，用来判本段的模糊音等价读音是否保留。
-+  std::unique_ptr<rime::Dictionary> lock_dictionary = OpenDictionary(schema);
-+  const rime::Table* lock_table = (lock_dictionary && lock_dictionary->primary_table())
-+      ? lock_dictionary->primary_table() : nullptr;
++  rime::Table* lock_table = lock_dictionary ? lock_dictionary->primary_table().get() : nullptr;
    std::vector<std::pair<size_t, rime::SyllableGraph>> chosen(active);
    size_t end = start;
    for (size_t i = 0; i < active; ++i) {
-@@ -395,7 +462,8 @@ inline size_t BuildGraph(rime::Syllabifier& builder, const std::string& input,
+@@ -395,7 +463,8 @@ inline size_t BuildGraph(rime::Syllabifier& builder, const std::string& input,
      if (static_cast<size_t>(builder.BuildSyllableGraph(
              input.substr(end, chosen_length), prism, &chosen[i].second)) != chosen_length ||
          !ConstrainGraph(&chosen[i].second, 0, chosen_length, lock.spans[i].syllable,
@@ -293,7 +306,7 @@ index 7094f18..e857f14 100644
      end = chosen_end;
    }
    rime::SyllableGraph after;
-@@ -616,7 +684,8 @@ inline bool Apply(rime::Context* context, rime::Schema* schema, const rime::Pris
+@@ -616,7 +685,8 @@ inline bool Apply(rime::Context* context, rime::Schema* schema, const rime::Pris
  
  inline bool Select(rime::Context* context, rime::Schema* schema, rime::Engine* engine,
                     const std::string& expected_input, const std::string& expected_schema,
@@ -303,7 +316,7 @@ index 7094f18..e857f14 100644
    if (!context || !schema || context->get_option("ascii_mode") ||
        context->input() != expected_input || schema->schema_id() != expected_schema ||
        start >= end || end > context->caret_pos() ||
-@@ -644,6 +713,16 @@ inline bool Select(rime::Context* context, rime::Schema* schema, rime::Engine* e
+@@ -644,6 +714,16 @@ inline bool Select(rime::Context* context, rime::Schema* schema, rime::Engine* e
    }
    if (lock.spans.empty() && start != confirmed) return false;
    lock.spans.push_back({start, end, syllable});
