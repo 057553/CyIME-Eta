@@ -39,7 +39,7 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.
 +        android.util.Log.i("CyIMEPause", "gate blocked=$blocked scheme=${profile.scheme} kind=${profile.layout.kind} " +
 +            "mode=${profile.mode} lang=${profile.language} len=${state.inputText.length} comp=${state.isComposing} " +
 +            "prev=${state.hasPrevPage} ascii=$ascii cn=${service.isChineseMode} m14=$merged14 " +
-+            "mdp=$mergedDoublePinyin single=$singleLetterKeys(profile.layout) input='${state.inputText}'")
++            "mdp=$mergedDoublePinyin single=${singleLetterKeys(profile.layout)} input='${state.inputText}'")
 +        if (blocked) return
          // 停顿后只补漏键和打反两种读法（双拼、14 键还有多键）：都关了就不再算一遍（引擎也不查，这里省掉这次调用）。
          // 14 键全拼停一下后引擎还要拿词组模型拼的整句和首选比一次（方案里的 t9/model_sentences_on_pause），纠错都关了也要算。
