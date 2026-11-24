@@ -1,0 +1,26 @@
+diff --git a/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h b/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
+index 7094f18..caa8b72 100644
+--- a/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
++++ b/app/src/main/jni/librime-t9/src/pinyin_syllable_selection.h
+@@ -267,8 +267,19 @@ inline bool ConstrainGraph(rime::SyllableGraph* graph, size_t start, size_t end,
+       if (edge->first <= start || source->first >= end) {
+         ++edge;
+       } else if (source->first == start && edge->first == end) {
+-        edge->second.clear();
+-        edge->second.emplace(syllable, chosen);
++        // 选中的读音是硬约束，但模糊音本身不是用户的选择：in/ing 这类等价读音
++        // 由 speller 的 fuzz 规则派生（type == kFuzzySpelling），本就该同时可用，
++        // 选 din 之后 ing 仍要出现在候选里。合并键带来的同码不同音节（shi / shuo
++        // 来自 derive 规则，type == kNormalSpelling）不在等价集合内，选 shuo 后
++        // 必须只剩 shuo，否则就是「选了不生效」。
++        decltype(edge->second) kept;
++        kept.emplace(syllable, chosen);
++        for (const auto& item : edge->second) {
++          if (item.first == syllable) continue;
++          if (item.second.type != rime::kFuzzySpelling) continue;
++          kept.emplace(item.first, item.second);
++        }
++        edge->second = std::move(kept);
+         ++edge;
+       } else {
+         edge = source->second.erase(edge);

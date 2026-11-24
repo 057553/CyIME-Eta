@@ -244,6 +244,19 @@ jobs:
             echo "::warning::arm64-only.patch 不适用，编全架构但只上传 arm64"
           fi
 
+      - name: Apply syllable lock patch (选读音硬锁 + 模糊音等价保留)
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          set -uo pipefail
+          P=../patchsrc/.github/eta/syllable-lock-fuzzy.patch
+          if git apply --check -p1 "$P" 2>/dev/null; then
+            git apply -p1 "$P"; echo "已应用：选读音硬锁，模糊音等价读音保留"
+          else
+            echo "::error::syllable-lock-fuzzy.patch 无法应用（pinyin_syllable_selection 改了 ConstrainGraph），需要人工 rebase。"
+            exit 1
+          fi
+
       - name: Apply pinyin syllable diagnostics (temporary)
         if: steps.skip.outputs.skip != 'true'
         working-directory: src
