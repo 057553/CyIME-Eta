@@ -1,6 +1,6 @@
 diff -ruN a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt b/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt
---- a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt	2026-11-24 07:43:01.788102463 +0000
-+++ b/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt	2026-11-24 07:43:01.788102463 +0000
+--- a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt	2026-11-24 07:59:18.900113127 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.kt	2026-11-24 07:59:18.904113127 +0000
 @@ -37,9 +37,14 @@
  /**
   * 停顿纠错查的输入：26 键只有小写字母；14 键只有合并键的大写代表字母（QETUOADGJZCB）和 l、m。
@@ -75,9 +75,47 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/service/ImeSessionController.
              }
              if (changed && service.uiState.value.inputSessionId == ui.inputSessionId &&
                  service.candidateState.value.engineRevision == state.engineRevision) {
+diff -ruN a/app/src/main/jni/cyime_rime/t9_joint_decoder.cc b/app/src/main/jni/cyime_rime/t9_joint_decoder.cc
+--- a/app/src/main/jni/cyime_rime/t9_joint_decoder.cc	2026-11-24 07:59:18.920113127 +0000
++++ b/app/src/main/jni/cyime_rime/t9_joint_decoder.cc	2026-11-24 07:59:18.924113127 +0000
+@@ -2,6 +2,7 @@
+ // scored by the word n-gram model (or dictionary weight + grammar without it). Formerly
+ // cmake/T9JointDecoder.inc, compiled inside Rime's script translator.
+ #include "t9_joint_decoder.h"
++#include <android/log.h>
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -128,6 +129,9 @@
+   const size_t total = syllables.interpreted_length;
+   if (!total) return false;
+   T9_WORK_COUNT(joint_decodes);
++  __android_log_print(ANDROID_LOG_INFO, "CyIMEPauseJ",
++                      "joint in='%s' syll=%zu refining=%d ngram=%d", q.input.c_str(), total,
++                      T9RefiningSentences() ? 1 : 0, o.t9_ngram_ ? 1 : 0);
+   const auto& input = q.input;
+   const bool single_t9_key = input.size() == 1 &&
+                              input.front() >= '2' && input.front() <= '9';
+@@ -285,6 +289,7 @@
+       cache->options = std::move(options);
+     }
+     if (const auto* paths = cache->results.Find(cache_key)) {
++      __android_log_print(ANDROID_LOG_INFO, "CyIMEPauseJ", "joint cachehit=%zu", paths->size());
+       T9_WORK_COUNT(joint_cache_hits);
+       restore(*paths);
+       return !sentences->empty();
+@@ -905,6 +910,8 @@
+     for (const auto& path : paths) bytes += T9SentenceBytes(path.sentence);
+     cache->results.Put(cache_key, std::move(paths), bytes);
+   }
++  __android_log_print(ANDROID_LOG_INFO, "CyIMEPauseJ", "joint out built=%zu budget=%zu",
++                      sentences->size(), static_cast<size_t>(o.t9_result_budget_));
+   return !sentences->empty();
+ }
+ 
 diff -ruN a/app/src/main/jni/librime_jni/candidate_policy.cc b/app/src/main/jni/librime_jni/candidate_policy.cc
---- a/app/src/main/jni/librime_jni/candidate_policy.cc	2026-11-24 07:43:01.796102463 +0000
-+++ b/app/src/main/jni/librime_jni/candidate_policy.cc	2026-11-24 07:43:01.796102463 +0000
+--- a/app/src/main/jni/librime_jni/candidate_policy.cc	2026-11-24 07:59:18.916113127 +0000
++++ b/app/src/main/jni/librime_jni/candidate_policy.cc	2026-11-24 07:59:18.916113127 +0000
 @@ -1,4 +1,5 @@
  #include "candidate_policy.h"
 +#include <android/log.h>
@@ -131,8 +169,8 @@ diff -ruN a/app/src/main/jni/librime_jni/candidate_policy.cc b/app/src/main/jni/
    return keep;
  }
 diff -ruN a/app/src/main/jni/librime_jni/rime_jni.cc b/app/src/main/jni/librime_jni/rime_jni.cc
---- a/app/src/main/jni/librime_jni/rime_jni.cc	2026-11-24 07:43:01.792102463 +0000
-+++ b/app/src/main/jni/librime_jni/rime_jni.cc	2026-11-24 07:43:01.792102463 +0000
+--- a/app/src/main/jni/librime_jni/rime_jni.cc	2026-11-24 07:59:18.908113127 +0000
++++ b/app/src/main/jni/librime_jni/rime_jni.cc	2026-11-24 07:59:18.912113127 +0000
 @@ -1374,10 +1374,21 @@
      bool refineOmission() {
          if (!rime || !session_id_) return false;
