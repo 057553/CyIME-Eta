@@ -1,6 +1,6 @@
 diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateBar.kt b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateBar.kt
---- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateBar.kt	2026-11-24 01:14:23.508221930 +0000
-+++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateBar.kt	2026-11-24 01:14:23.508221930 +0000
+--- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateBar.kt	2026-11-23 19:26:07.000000000 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateBar.kt	2026-11-24 02:26:04.944899644 +0000
 @@ -241,6 +241,7 @@
      state: CandidateBarState,
      page: KeyboardPage = KeyboardPage.Main(com.kingzcheung.xime.keyboard.MainType.FULL),
@@ -43,8 +43,8 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateBar.kt b
                  val stripCallbacks = if (isGlidePreview) callbacks.copy(
                      onVisibleCandidatesChanged = null,
 diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt
---- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt	2026-11-24 01:14:23.512221930 +0000
-+++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt	2026-11-24 01:14:23.516221930 +0000
+--- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt	2026-11-23 19:26:07.000000000 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt	2026-11-24 02:26:17.488899639 +0000
 @@ -97,6 +97,10 @@
      val candidates: List<CandidateEntry> = emptyList(),
      val engineRevision: Long = 0L,
@@ -124,9 +124,17 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidatePage.kt 
                              backgroundColor = LocalFunctionKeyColors.current?.background ?: keyBg,
                              iconColor = LocalFunctionKeyColors.current?.foreground ?: state.textColor,
                              modifier = railKeyModifier.then(if (deleteWidth != null) Modifier.width(deleteWidth)
+@@ -498,6 +518,7 @@
+                             shadowEnabled = false,
+                             visualPadding = if (matchKeyboard) null else PaddingValues(0.dp),
+                         )
++                        }
+                         CandidatePagingButton(
+                             onClick = { onHapticFeedback?.invoke(); scrollPage(-1) },
+                             enabled = listState.canScrollBackward,
 diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateStrokeFilter.kt b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateStrokeFilter.kt
 --- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateStrokeFilter.kt	1970-01-01 00:00:00.000000000 +0000
-+++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateStrokeFilter.kt	2026-11-24 01:14:23.524221930 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateStrokeFilter.kt	2026-11-24 02:26:04.944899644 +0000
 @@ -0,0 +1,139 @@
 +package com.kingzcheung.xime.ui.keyboard
 +
@@ -268,8 +276,8 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/CandidateStrokeFi
 +
 +internal val LocalStrokeDeleteRelease = staticCompositionLocalOf<(() -> Unit)?> { null }
 diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt
---- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt	2026-11-24 01:14:23.516221930 +0000
-+++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt	2026-11-24 01:14:23.520221930 +0000
+--- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt	2026-11-23 19:26:07.000000000 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt	2026-11-24 02:26:04.944899644 +0000
 @@ -93,6 +93,7 @@
  import androidx.compose.ui.unit.sp
  import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -850,9 +858,17 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardView.kt b
                              LocalSuppressCursorMove provides suppressCursorMove,
                              // 符号页收起时主键盘从「返回」那个位置扩开（键缝动效的切换扩散，用户 11-22）。
 diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt
---- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt	2026-11-24 01:14:23.520221930 +0000
-+++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt	2026-11-24 01:14:23.524221930 +0000
-@@ -197,9 +197,12 @@
+--- a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt	2026-11-23 19:26:07.000000000 +0000
++++ b/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt	2026-11-24 02:26:17.488899639 +0000
+@@ -30,6 +30,7 @@
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.graphics.lerp
+ import androidx.compose.ui.input.pointer.pointerInput
++import androidx.compose.ui.layout.LayoutCoordinates
+ import androidx.compose.ui.layout.boundsInRoot
+ import androidx.compose.ui.layout.onGloballyPositioned
+ import androidx.compose.ui.layout.positionInRoot
+@@ -197,9 +198,12 @@
          flashAlpha.animateTo(0f, tween(fadeLeft.coerceIn(1L, SpaceLanguageFlash.FADE_MS).toInt(), easing = LinearEasing))
      }
      val flashVisible by remember { derivedStateOf { flashAlpha.value > 0f } }
@@ -865,7 +881,7 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt
                  it.positionInRoot().let { p -> spaceOrigin[0] = p.x; spaceOrigin[1] = p.y }
                  spaceBounds = it.boundsInRoot()
              }
-@@ -207,6 +210,15 @@
+@@ -207,6 +211,15 @@
                  settings.voiceSwipeCancel) {
                  val step = settings.cursorStepDp * cursorUnitPx
                  val tapTolerance = maxOf(viewConfiguration.touchSlop, 24.dp.toPx())
@@ -881,7 +897,7 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt
                  awaitEachGesture {
                      val down = awaitFirstDown()
                      down.consume()
-@@ -220,6 +232,7 @@
+@@ -220,6 +233,7 @@
                      val swipeUp = currentSwipeUp?.takeIf { !endsLock && !guarded }
                      var held = false
                      var movedBeforeHold = false
@@ -889,7 +905,7 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt
                      // 按住说话（用户 10-30：长按开了语音松手不停，和点麦克风是两回事）：这次长按开的语音，松手就结束并上屏。
                      var startedVoice = false
                      var lastX = down.position.x
-@@ -301,12 +314,37 @@
+@@ -301,12 +315,37 @@
                                      if (armed) view.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
                                  }
                              }
@@ -931,7 +947,7 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt
                              }
                              if (cursorActive) {
                                  cursorSteps.stepPx = lineCursorStepPx(view.rootView.width / 2f, settings.cursorSwipeLines,
-@@ -327,6 +365,13 @@
+@@ -327,6 +366,13 @@
                                  } else if (swipeUp != null && swipeUpArmed && !held) {
                                      gapLightTrigger.tap()
                                      swipeUp()
@@ -945,7 +961,7 @@ diff -ruN a/app/src/main/java/com/kingzcheung/xime/ui/keyboard/SpaceKeyButton.kt
                                  } else if (!held && !movedBeforeHold && !guarded) {
                                      gapLightTrigger.tap()
                                      currentClick()
-@@ -335,6 +380,12 @@
+@@ -335,6 +381,12 @@
                              }
                          }
                      } finally {

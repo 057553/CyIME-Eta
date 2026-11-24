@@ -295,52 +295,52 @@ diff -ruN a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
                  <action android:name="android.service.quicksettings.action.QS_TILE" />
 diff -ruN a/app/src/main/res/drawable/eta_icon_background.xml b/app/src/main/res/drawable/eta_icon_background.xml
 --- a/app/src/main/res/drawable/eta_icon_background.xml	1970-01-01 00:00:00.000000000 +0000
-+++ b/app/src/main/res/drawable/eta_icon_background.xml	2026-11-23 23:48:52.412339987 +0000
-@@ -0,0 +1,16 @@
++++ b/app/src/main/res/drawable/eta_icon_background.xml	2026-11-24 02:29:32.416899565 +0000
+@@ -0,0 +1,22 @@
 +<?xml version="1.0" encoding="utf-8"?>
-+<!-- eta 版图标背景：浅紫底 + 紫色圆环。 -->
++<!-- eta 版图标背景：深紫渐变（左上偏亮，右下近黑紫）。 -->
 +<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:aapt="http://schemas.android.com/aapt"
 +    android:width="108dp"
 +    android:height="108dp"
 +    android:viewportWidth="108"
 +    android:viewportHeight="108">
-+    <path
-+        android:pathData="M0,0h108v108h-108z"
-+        android:fillColor="#F7F4FF" />
-+    <path
-+        android:pathData="M30,45 a24,24 0 1,0 48,0 a24,24 0 1,0 -48,0"
-+        android:strokeColor="#6550CC"
-+        android:strokeWidth="3.0"
-+        android:fillColor="#00000000" />
++    <path android:pathData="M0,0h108v108h-108z">
++        <aapt:attr name="android:fillColor">
++            <gradient
++                android:type="linear"
++                android:startX="8"
++                android:startY="0"
++                android:endX="100"
++                android:endY="108"
++                android:startColor="#5F4BD2"
++                android:centerColor="#332566"
++                android:endColor="#120F22" />
++        </aapt:attr>
++    </path>
 +</vector>
 diff -ruN a/app/src/main/res/drawable/eta_icon_foreground.xml b/app/src/main/res/drawable/eta_icon_foreground.xml
 --- a/app/src/main/res/drawable/eta_icon_foreground.xml	1970-01-01 00:00:00.000000000 +0000
-+++ b/app/src/main/res/drawable/eta_icon_foreground.xml	2026-11-23 23:48:52.412339987 +0000
-@@ -0,0 +1,20 @@
++++ b/app/src/main/res/drawable/eta_icon_foreground.xml	2026-11-24 02:29:56.868899555 +0000
+@@ -0,0 +1,14 @@
 +<?xml version="1.0" encoding="utf-8"?>
-+<!-- eta 版图标前景：希腊字母 η（Eta）+ 三点候选。 -->
++<!-- eta 版图标前景：白色希腊字母 η + 候选条。 -->
 +<vector xmlns:android="http://schemas.android.com/apk/res/android"
 +    android:width="108dp"
 +    android:height="108dp"
 +    android:viewportWidth="108"
 +    android:viewportHeight="108">
 +    <path
-+        android:pathData="M43.8,59.25 L43.8,34.21 L49.36,34.21 L49.36,38.9 Q49.81,36.53 51.59,35.14 Q53.36,33.75 56.09,33.75 Q59.78,33.75 61.99,36.21 Q64.2,38.67 64.2,42.81 L64.2,59.25 L58.51,59.25 L58.51,43.49 Q58.51,41.17 57.3,39.92 Q56.09,38.67 54.05,38.67 Q51.91,38.67 50.7,39.94 Q49.49,41.22 49.49,43.59 L49.49,59.25 Z"
-+        android:fillColor="#20213A" />
++        android:pathData="M59.25 67V37.14Q59.25 34.39 58.17 32.86Q57.09 31.33 54.77 31.33Q52.5 31.33 51.2 32.44Q49.91 33.55 49.36 35.66Q48.8 37.77 48.8 40.83V54.34H40.84V25.53H46.96L48.01 29.22H48.43Q49.38 27.74 50.73 26.79Q52.07 25.84 53.71 25.42Q55.35 25 57.09 25Q60.09 25 62.36 26.08Q64.63 27.16 65.9 29.51Q67.16 31.86 67.16 35.55V67Z"
++        android:fillColor="#FFFFFF" />
 +    <path
-+        android:pathData="M47.1,76.0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0"
-+        android:fillColor="#B0A5DA" />
-+    <path
-+        android:pathData="M51.9,76.0 a2.1,2.1 0 1,0 4.2,0 a2.1,2.1 0 1,0 -4.2,0"
-+        android:fillColor="#6A52D0" />
-+    <path
-+        android:pathData="M58.1,76.0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0"
-+        android:fillColor="#B0A5DA" />
++        android:pathData="M44,73 h20 a4,4 0 0 1 4,4 a4,4 0 0 1 -4,4 h-20 a4,4 0 0 1 -4,-4 a4,4 0 0 1 4,-4 z"
++        android:fillColor="#B9A4FF" />
 +</vector>
 diff -ruN a/app/src/main/res/drawable/eta_icon_monochrome.xml b/app/src/main/res/drawable/eta_icon_monochrome.xml
 --- a/app/src/main/res/drawable/eta_icon_monochrome.xml	1970-01-01 00:00:00.000000000 +0000
-+++ b/app/src/main/res/drawable/eta_icon_monochrome.xml	2026-11-23 23:48:52.412339987 +0000
-@@ -0,0 +1,20 @@
++++ b/app/src/main/res/drawable/eta_icon_monochrome.xml	2026-11-24 02:29:56.868899555 +0000
+@@ -0,0 +1,14 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<!-- 单色层（Android 13 主题图标）：系统只取 alpha 上色。 -->
 +<vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -349,17 +349,11 @@ diff -ruN a/app/src/main/res/drawable/eta_icon_monochrome.xml b/app/src/main/res
 +    android:viewportWidth="108"
 +    android:viewportHeight="108">
 +    <path
-+        android:pathData="M43.8,59.25 L43.8,34.21 L49.36,34.21 L49.36,38.9 Q49.81,36.53 51.59,35.14 Q53.36,33.75 56.09,33.75 Q59.78,33.75 61.99,36.21 Q64.2,38.67 64.2,42.81 L64.2,59.25 L58.51,59.25 L58.51,43.49 Q58.51,41.17 57.3,39.92 Q56.09,38.67 54.05,38.67 Q51.91,38.67 50.7,39.94 Q49.49,41.22 49.49,43.59 L49.49,59.25 Z"
++        android:pathData="M59.25 67V37.14Q59.25 34.39 58.17 32.86Q57.09 31.33 54.77 31.33Q52.5 31.33 51.2 32.44Q49.91 33.55 49.36 35.66Q48.8 37.77 48.8 40.83V54.34H40.84V25.53H46.96L48.01 29.22H48.43Q49.38 27.74 50.73 26.79Q52.07 25.84 53.71 25.42Q55.35 25 57.09 25Q60.09 25 62.36 26.08Q64.63 27.16 65.9 29.51Q67.16 31.86 67.16 35.55V67Z"
 +        android:fillColor="#FFFFFFFF" />
 +    <path
-+        android:pathData="M47.1,76.0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0"
-+        android:fillColor="#FFFFFFFF" />
-+    <path
-+        android:pathData="M51.9,76.0 a2.1,2.1 0 1,0 4.2,0 a2.1,2.1 0 1,0 -4.2,0"
-+        android:fillColor="#FFFFFFFF" />
-+    <path
-+        android:pathData="M58.1,76.0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0"
-+        android:fillColor="#FFFFFFFF" />
++        android:pathData="M44,73 h20 a4,4 0 0 1 4,4 a4,4 0 0 1 -4,4 h-20 a4,4 0 0 1 -4,-4 a4,4 0 0 1 4,-4 z"
++        android:fillColor="#B9A4FF" />
 +</vector>
 diff -ruN a/app/src/main/res/mipmap-anydpi-v26/eta_launcher.xml b/app/src/main/res/mipmap-anydpi-v26/eta_launcher.xml
 --- a/app/src/main/res/mipmap-anydpi-v26/eta_launcher.xml	1970-01-01 00:00:00.000000000 +0000
